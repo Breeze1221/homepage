@@ -61,7 +61,7 @@
 | 音乐播放器（歌单 / 歌词 / 播放） | ✅ 正常，走公共 Meting 接口。保持 `musicSource: "meting"` 即可 |
 | 洛雪音源解析（`/api/url`、`/api/health`） | ❌ 没有这两个接口，自动降级回 Meting，播放不受影响 |
 | 网易官方高清封面（`/netease-search`、`/netease-album/:id`、`/netease-songs`） | ❌ 接口 404，封面回落成歌单自带的小图，其余功能不受影响 |
-| 博客更新卡（`/blog-rss`） | ❌ 拿不到 RSS（这个路径在 Vercel 上是 rewrite 代理），卡片显示加载失败 |
+| 博客更新卡（`/blog-rss`） | ❌ 拿不到 RSS（这个路径由 Vercel 函数 `api/blog-rss.mjs` 转发），卡片退化成「去博客看看 →」兜底链接 |
 
 > 想保留 API 又让页面跑在别处也可以，但前端调用写死的是同源 `/api/url`，得改成绝对地址并给函数配
 > `ALLOW_ORIGINS`，还要自己维护两处部署 —— 不如整站留在 Vercel 省事。
@@ -79,6 +79,11 @@ npm run dev
 
 > **本地跑不了 `/api/url`。** Vite 不执行 `api/*.mjs`（它是 Vercel 的 serverless 函数），该路径也没配
 > 代理，请求会静默降级到 Meting，控制台留一条提示。想在本地调试真正的解析函数，用 `npx vercel dev`。
+>
+> 也可以本地直连线上的函数：`DEV_API_ORIGIN=https://<你的线上域名> npm run preview`，`/api` 会被
+> 反代过去（它同时改写 Origin/Referer，否则会被同源白名单 403）。默认不开，不配就还是降级。
+>
+> 博客卡不受这条限制：`/blog-rss` 由 `vite.config.js` 按 `siteConfig.blogRss` 直连你的 RSS 源。
 
 ### 环境变量
 
@@ -118,6 +123,7 @@ npm run dev
 | `siteConfig.cardTilt` | 卡片 3D 倾联动效开关（含音乐全屏播放器封面），`false` 关闭 |
 | `siteConfig.weatherCity` | 天气城市 adcode，留空 = 自动定位 |
 | `siteConfig.bgApi` | 随机壁纸 API，见[「自定义背景」](#自定义背景)一节 |
+| `siteConfig.blogRss` | 你的博客 RSS 完整地址（如 `https://blog.example.com/rss.xml`），留空则博客卡只显示兜底链接，见[「博客更新卡」](#博客更新卡) |
 | `siteConfig.homeCards` | 主页各卡片开关（greet / blog / hitokoto / clock / weather / siteLinks），`false` 隐藏 |
 | `siteConfig.panelCards` | 二级面板卡片排列：数组顺序 = 排列顺序，删掉某项 = 隐藏该卡 |
 | `siteConfig.panelTips` | 进入二级面板时的烟花提示文案池，留空数组只放烟花不显示提示 |
@@ -158,6 +164,23 @@ npm run dev
 接口用法（`/api/url` 入参、返回码）、访问控制、缓存行为、音源优先级
 （`sources/ranking.json`）与「为什么边缘平台跑不了」的实测结论，都在
 [**`docs/proxy.md`**](docs/proxy.md)。
+
+### 博客更新卡
+
+把博客的 RSS 完整地址填到 `src/config.js` 的 `blogRss`（如
+`https://blog.example.com/rss.xml`），卡片就会展示最新 3 篇。
+
+前端固定请求同源 `/blog-rss`，由 `api/blog-rss.mjs` 转发到 `blogRss` —— 所以
+**换博客域名只改 config.js 一处**，`vercel.json` 里没有域名。转发带浏览器 UA（不少博客
+的 Cloudflare 盾会拦空 UA 的 Node 请求），响应缓存 10 分钟。
+
+两种"不填"的情况：
+
+- **`blogRss` 留空**：不发请求，卡片直接显示 `siteLinks` 里 `icon: "blog"` 那条的链接；
+- **连兜底链接也不想要**：把 `homeCards.blog` 设为 `false` 隐藏整张卡。
+
+> 本地开发同样能拉到：`vite.config.js` 会读 `blogRss` 配代理（`npm run dev` / `npm run preview` 都生效）。
+> 纯静态平台（Cloudflare Pages 等）上这个函数不存在，博客卡会退化成兜底链接 —— 见上方表格。
 
 ### 站点监控卡
 
@@ -220,7 +243,7 @@ homepage/
 │   ├── App.vue              # 页面布局
 │   ├── style.css            # 全局样式（颜色变量等）
 │   └── components/          # 各功能组件
-├── api/                     # Vercel serverless 函数（音乐解析 / 健康自检）
+├── api/                     # Vercel serverless 函数（音乐解析 / 健康自检 / 博客 RSS 转发）
 ├── lib/                     # 解析核心：音源宿主 / 调度器 / 访问控制 / 音源优先级
 ├── sources/                 # 洛雪音源脚本（随函数一起部署，可换成自己的）+ ranking.json
 └── vite.config.js

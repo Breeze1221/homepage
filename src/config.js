@@ -58,6 +58,14 @@ export const siteConfig = {
     "https://www.loliapi.com/acg/",
   ],
 
+  /* ---------- 博客更新卡 ---------- */
+  // 你的博客 RSS 完整地址，例如 "https://blog.example.com/rss.xml"。
+  // 前端固定请求同源 `/blog-rss`，由函数 `api/blog-rss.mjs` 代为转发
+  // （本地开发 / 预览由 vite.config.js 读这个值配代理）。
+  // 留空 = 不发请求，博客卡显示下方 siteLinks 里 icon 为 blog 的地址作为兜底；
+  // 不想要这张卡就把 homeCards.blog 设成 false。
+  blogRss: "",
+
   /* ---------- 主页卡片开关 ---------- */
   // false = 隐藏对应卡片
   homeCards: {

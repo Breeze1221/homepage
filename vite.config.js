@@ -4,6 +4,7 @@ import { fileURLToPath, URL } from "node:url";
 import { readdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { currentSiteFont } from "./src/fonts.js";
+import { siteConfig } from "./src/config.js";
 
 // 本地 dev/preview 代理网易接口时补上伪装头，和线上 lib/netease.mjs 的函数代发
 // 行为一致——裸请求（不带 UA/Referer）从 Vite 进程出去容易触发网易风控
@@ -19,6 +20,32 @@ const neteaseProxy = (rewrite) => ({
   headers: NETEASE_HEADERS,
   rewrite,
 });
+
+// 博客 RSS 同源代理（生产环境由 vercel.json 把 /blog-rss 转到 api/blog-rss.mjs）。
+// 目标地址取 config.js 的 blogRss——**域名只存在于那一处**，这个文件（以及 vercel.json）
+// 里不再出现站长的博客地址，模板仓库 clone 下来是干净的。
+// 留空则不注册该代理：本地访问 /blog-rss 会落到 SPA fallback（返回 index.html），
+// BlogCard 解析失败后显示「去博客看看 →」兜底，与线上未配置时的表现一致。
+const blogRssProxy = (() => {
+  const src = siteConfig.blogRss || "";
+  if (!src) return {};
+  let u;
+  try {
+    u = new URL(src);
+  } catch {
+    console.warn(`[vite] siteConfig.blogRss 不是合法 URL（${src}），/blog-rss 代理未启用`);
+    return {};
+  }
+  // 路径整段取自配置（不能假设是 /rss.xml）；rewrite 忽略请求路径
+  const destination = `${u.pathname}${u.search}`;
+  return {
+    "/blog-rss": {
+      target: u.origin,
+      changeOrigin: true,
+      rewrite: () => destination,
+    },
+  };
+})();
 
 // 本地 dev/preview **没有** Vercel 的 serverless 函数：`/api/*` 会落到 SPA fallback
 // （返回 index.html），音乐解析 fetch 拿到 HTML、JSON 解析失败 → 静默降级到 Meting，
@@ -75,11 +102,7 @@ export default defineConfig({
   server: {
     proxy: {
       ...apiProxy,
-      "/blog-rss": {
-        target: "https://blog.zlion.top",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/blog-rss/, "/rss.xml"),
-      },
+      ...blogRssProxy,
       "/netease-search": neteaseProxy((path) => path.replace(/^\/netease-search/, "/api/search/get/web")),
       "/netease-album": neteaseProxy((path) => path.replace(/^\/netease-album/, "/api/v1/album")),
       "/netease-songs": neteaseProxy((path) => path.replace(/^\/netease-songs/, "/api/song/detail/")),
@@ -88,11 +111,7 @@ export default defineConfig({
   preview: {
     proxy: {
       ...apiProxy,
-      "/blog-rss": {
-        target: "https://blog.zlion.top",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/blog-rss/, "/rss.xml"),
-      },
+      ...blogRssProxy,
       "/netease-search": neteaseProxy((path) => path.replace(/^\/netease-search/, "/api/search/get/web")),
       "/netease-album": neteaseProxy((path) => path.replace(/^\/netease-album/, "/api/v1/album")),
       "/netease-songs": neteaseProxy((path) => path.replace(/^\/netease-songs/, "/api/song/detail/")),

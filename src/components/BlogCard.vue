@@ -34,7 +34,7 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import { cachedFetch } from "@/utils/cachedFetch";
-import { socialLinks, siteLinks } from "@/config";
+import { socialLinks, siteLinks, siteConfig } from "@/config";
 import Icon from "@/components/Icon.vue";
 import CardHead from "@/components/CardHead.vue";
 
@@ -60,6 +60,12 @@ function parseXml(xml) {
 }
 
 onMounted(async () => {
+  // 没配 blogRss 就别发请求：模板默认留空，/blog-rss 会返回 404 文本，
+  // 拿去做 DOMParser 解析只是白跑一趟。直接走下面的兜底链接
+  if (!siteConfig.blogRss) {
+    failed.value = true;
+    return;
+  }
   try {
     const data = await cachedFetch({
       key: CACHE_KEY,
