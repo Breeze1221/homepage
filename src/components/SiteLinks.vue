@@ -72,6 +72,10 @@ const cols = computed(() => {
 .site-card:hover {
   background: var(--glass-strong);
   border-color: var(--border-bright);
+  /* frost 快照模式下元素自身的底色与边框被快照层盖住，提亮改由这两条变量驱动
+     （.glass.frost-ready::after 读它们，background-color / box-shadow 都可过渡） */
+  --frost-tint: var(--glass-strong);
+  --frost-edge: var(--border-bright);
 }
 
 .icon {

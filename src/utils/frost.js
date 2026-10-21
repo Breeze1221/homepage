@@ -1,267 +1,271 @@
 /**
- * 毛玻璃快照（桌面端交互 GPU 优化）——CSS 版
+ * 毛玻璃快照（共享底版 + 区域拷贝）——canvas 版
  *
  * 背景：13 张 .glass 用实时 backdrop-filter: blur(14px) saturate(1.4)。桌面端页面
  * 不滚动，卡片背后的壁纸是静态的——滤镜输出永远不变，但任何脏区（光标/涟漪/倾斜）
  * 碰到卡片都会让 Chromium 逐帧重跑这份模糊。实测（有头 Chrome + Windows GPU Engine
  * 计数器，2560×1392@120Hz）：光标在卡片上移动 GPU 50~78%，纯空白区只有 ~15%，
- * 关掉 backdrop-filter 即回落到 ~14%（V5 实验）——烧的就是这份「永远不变的模糊」。
+ * 关掉 backdrop-filter 即回落到 ~14%。
  *
- * 方案：壁纸就绪后给每张卡加 .frost-ready：
- *   - ::after 伪元素铺「壁纸 cover + 36% 压暗 + 颗粒」（背景按视口对齐：JS 一次性
- *     算好 background-position/size，不用 background-attachment:fixed——后者在
- *     transform 祖先下会被 Chromium 退化成 scroll，悬停倾斜时会跳变）；
- *   - ::after 自身挂 filter: blur(14px) saturate(1.4)。静态元素的一次性滤镜光栅化
- *     一次后缓存成纹理（与全屏背景层移除 will-change 后的实测行为一致），交互脏区
- *     不再触发任何重取样；
- *   - 卡片撤掉实时 backdrop-filter。3D 倾斜照常——整卡变换一张静态纹理几乎免费。
+ * 方案：壁纸就绪后
+ *   1. 烘焙**一张**全屏模糊底版（壁纸 cover + --bg-dim 压暗，一次 14px 高斯 + saturate）；
+ *   2. 每张卡插入一个 .frost-canvas，只把底版里自己那块 drawImage 拷过来；
+ *   3. 卡片撤掉实时 backdrop-filter。
+ * 与「每卡各跑一次 backdrop-filter」相比，模糊次数 13→1；更关键的是**布局一变只重
+ * 拷贝**（微秒级、不换渲染路径），不再需要摘类重挂那一套。
  *
- * ⚠️时机（这条是整个文件最要紧的约束）：快照必须在**载入遮罩还不透明**时就挂好，
- * 且必须挂在**布局落定之后**。两个条件的交集就是「揭幕前最后一刻」：
- *   揭幕时机到 → 等字体 → 等布局落定 → 量几何 → 烘焙 → 才真的揭幕
- * （App.vue 用 whenFrostSettled() 做有界门闩）。未揭幕时 .page 还没有 .ready、
- * rise 动画根本没挂上，卡片静止在最终位置，可以直接量——这是能提前烘焙的前提。
+ * ⚠️为什么不用 getBoundingClientRect 定位：`.rise` / `cell-in` 入场动画会把祖先或
+ * 卡片自己变换掉，rect 里带着动画位移（实测 clock 静止 y=32、动画中量到 49），
+ * 而 offsetParent 在运行期还会换锚点。所以定位与几何指纹共用**同一条
+ * offsetParent 链累加**——纯布局量，两个污染源一起免疫，且指纹与采样原点不可能
+ * 互相矛盾（上一版正是这两者用不同来源才反复重烘）。
+ * 代价是取整到整数像素：卡片在视口里可能有 ≤0.5px 的采样偏移，对 14px 模糊不可辨。
  *
- * 为什么是"最后一刻"而不是"壁纸一就绪就烘"：挂载瞬间卡片边缘会换一条渲染路径
- * （实时 backdrop-filter 在边框盒处截断取样，烘焙层有 60px 真实出血，紧贴边框的
- * 1~6px 亮度变化，实测最多 +18/255），所以切换只能藏在遮罩后面；而天气卡/RSS 列表
- * 都是接口到位才插入的（v-if），一进来右列就推移 182px——烘早了，监护就得在揭幕后
- * 重烘一次，那又是一次可见变化（用户实测反馈：「卡片还没到位就快照了模糊，到位后
- * 又重新模糊快照了一次」）。挂在门闩上，此前所有布局变动都已经吃进几何里。
- * 极端情况（接口比整个载入还慢）仍会晚到重烘，见 scan 里的布局监护。
- *
- * 同理壁纸本身也要在揭幕前就铺满（见 Background.vue 的 .snap）：否则卡片已按最终
- * 壁纸烘焙、背景还在从近黑淡入，两者基准不一致。
+ * ⚠️底版只画一次、所有卡共用，所以「正在展示的那张图」必须与底版同一份像素：
+ * 直接 drawImage 页面里那个 <img>（wallpaperBus.wallpaperEl）。跨域壁纸不构成障碍
+ * ——canvas 只画不读，不碰 toDataURL/getImageData 就不会触发 CORS 限制。
  *
  * 边界：
  * - 仅桌面精确指针启用（hover:hover + pointer:fine）。移动端页面会滚动、卡背后的
  *   区域随之变化，维持实时 backdrop-filter。
- * - 极光模式（壁纸加载失败）不启用：背后的光斑还在缓慢漂移，实时取样才正确；
- *   wallpaperBus 清空时自动拆除快照、还原实时滤镜。
- * - ::after 用 z-index:-1 沉到卡片内容之下、玻璃底色之上，因此 .glass 需要
- *   isolation:isolate 收住层叠（快照层不透明、铺满卡片，光泽层的混合基底与
- *   实时取样版完全一致，观感不变）。
- * - 窗口尺寸变化后重算各卡的偏移（防抖）；面板入场动画期间位置未定，跳过等下轮。
- * - 布局监护：快照是按挂载那一刻的几何烘焙的，之后任何布局位移（天气卡要等接口
- *   到位才插入、RSS 列表从"正在获取…"变三条、字体回流）都会让整页推移，快照与
- *   壁纸就整体错位。scan 每秒比对一次几何指纹，变了就重烘焙。指纹必须是"视口里的
- *   绝对布局位置"：用 getBoundingClientRect 会被 tilt 变换污染（鼠标划过就变），
- *   只用 offset* 又会被 offsetParent 换锚点污染（实测发生过）——见 geomKey。
+ * - 浏览器不支持 ctx.filter（如 Safari）时整体不启用，退回实时 backdrop-filter——
+ *   那是「正确但慢」的原始行为，不会出现半套状态。
+ * - 极光模式（壁纸加载失败）不启用：背后的光斑还在缓慢漂移，实时取样才正确。
+ * - 窗口尺寸变化后重建底版并全部重拷贝（防抖）。重建期间不摘 .frost-ready，
+ *   渲染路径不切换，所以看不到变化。
+ * - 面板卡片：收起时 display:none 量不到几何，只能等可见后拷贝；这里挂了一个
+ *   MutationObserver 监听 .more 的类变化，在**这一帧绘制之前**同步拷贝完，
+ *   所以打开面板不会先露出一帧实时模糊。
  */
 import { watch } from "vue";
-import { wallpaperUrl, wallpaperSize } from "./wallpaperBus";
+import { wallpaperUrl, wallpaperEl } from "./wallpaperBus";
 
-// ⚠️与 Background.vue 里 .grain 的 SVG 同源（噪点纹理 160×160）。页面那层是
-// 元素 opacity 0.04 × SVG 内部 0.35——快照层没有元素级透明度可挂，直接把
-// 0.35×0.04≈0.014 烘进贴图，保证与实时取样同亮度。
-const GRAIN_SRC =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.014'/%3E%3C/svg%3E";
-const GRAIN_SIZE = 180; // .grain 的 background-size
-const BLEED = 60; // ::after 超出卡片的余量，给模糊供边缘采样（3σ ≈ 21px，60 足够）
+// 压暗强度从全局 CSS 变量 --bg-dim 读（style.css :root）：与一级 .dim、二级
+// .more::before 同源，三处共用一个数，卡片内外亮度永远同步。读不到才用兜底值。
+const DIM_FALLBACK = 0.22;
+const BLUR = 14; // 与 .glass 的 backdrop-filter 同源
+const SATURATE = 1.4;
+const PLATE_SCALE = 1; // 底版纹理倍率（CSS px → 纹理 px）
+const CARD_SCALE = 1; // 卡片纹理倍率：内容已被 14px 模糊毁掉高频，1 倍足够，显存 /4
 
-let ready = false; // 壁纸尺寸已知（cover 参数可算）
-let imgW = 0;
-let imgH = 0;
-let scanTimer = null;
+let plate = null; // 全屏模糊底版，所有卡共用
+let lastSrc = null; // 底版用的像素源（开发期改压暗值时重建要用）
+let bakedDim = null; // 底版烘焙时用的压暗强度
+let ready = false; // 底版已就绪、可以拷贝
 let resizeTimer = null;
 let prepping = false; // 一轮「揭幕前准备」正在进行
 let prepSettled = null; // 本轮准备的完成信号（App.vue 揭幕前有界 await）
 let resolvePrep = null;
-let gateCalled = false; // 揭幕门闩是否已经来过（决定壁纸晚到后要不要就地补烘）
-// 卡片 → 烘焙时的布局几何指纹。布局一变就重烘焙（见 scan 里的监护）
+let gateCalled = false; // 揭幕门闩是否已经来过
+let panelMo = null; // .more 的可见性观察器
+let panelEl = null;
+let filterOk = null; // ctx.filter 能力缓存的判定结果
+
+// 卡片 → 上次拷贝时的几何指纹；卡片 → 画布元素
 const geom = new WeakMap();
+const canvases = new WeakMap();
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
+
+/** 浏览器是否支持 canvas 的 filter（Safari 至今没有 ctx.filter） */
+function ctxFilterOk() {
+  if (filterOk !== null) return filterOk;
+  try {
+    const c = document.createElement("canvas");
+    c.width = c.height = 1;
+    const ctx = c.getContext("2d");
+    filterOk = !!ctx && typeof ctx.filter === "string";
+  } catch {
+    filterOk = false;
+  }
+  return filterOk;
+}
 
 function eligible() {
   return (
     !!wallpaperUrl.value &&
     typeof window !== "undefined" &&
+    ctxFilterOk() &&
     window.matchMedia("(hover: hover) and (pointer: fine)").matches
   );
 }
 
-function coverSize(vw, vh) {
-  const ir = imgW / imgH;
+function coverSize(vw, vh, iw, ih) {
+  const ir = iw / ih;
   const vr = vw / vh;
   if (ir > vr) return { dw: vh * ir, dh: vh };
   return { dw: vw, dh: vw / ir };
 }
 
-/** 量卡片矩形：先把 tilt 写的内联 transform 摘掉再量。tilt.js 把 3D 倾斜写在
-    元素内联样式上，鼠标停在哪张卡上哪张就被变换过，直接量会把倾斜投影当成
-    布局位置，烘焙出的壁纸偏移就固定错了 */
-function measureRect(card) {
-  const t = card.style.transform;
-  if (!t) return card.getBoundingClientRect();
-  card.style.transform = "";
-  const rect = card.getBoundingClientRect();
-  card.style.transform = t;
-  return rect;
-}
-
-/** 布局几何指纹：沿 offsetParent 链累加 offsetLeft/offsetTop——纯布局量，
-    不含任何 transform、也不依赖某一个锚点。这里踩过两个坑，两样都不能用：
-    ⚠️1. 不能用 getBoundingClientRect（含祖先的 transform）。`.rise` 入场动画一跑，
-       被它变换的祖先会**变成新的 offsetParent**，它的 rect 带着动画位移、每帧都在
-       变，于是监护在「卡片正在到位」的整段动画里反复判定"布局变了"，摘掉重烘焙
-       ——而这段动画恰好整段落在揭幕之后，肉眼看到的就是「快照又变了一次」。
-       线上实测：clock 静止 y=32，判错时算出 49；weather 静止 214，判错时 231。
-    ⚠️2. 也不能只用 card.offsetLeft/offsetTop：它们相对 offsetParent，而 offsetParent
-       会换锚点（同上），位置一动没动、坐标系却整体平移了。
-    链式累加对两者都免疫。末了取整：亚像素抖动不该触发重烘焙。 */
-function geomKey(card) {
+/** 视口内的布局矩形：沿 offsetParent 链累加 offsetLeft/offsetTop。
+    不含任何 transform（tilt / 入场动画都跑在 transform 上），也不依赖某一个锚点
+    （offsetParent 会在运行期换）。文档坐标减去滚动量即为视口坐标——桌面端本来
+    不滚动，减这一下只是为了让「意外滚动」不至于整体错位。 */
+function layoutPos(card) {
   let x = 0;
   let y = 0;
   for (let n = card; n; n = n.offsetParent) {
     x += n.offsetLeft;
     y += n.offsetTop;
   }
-  return `${Math.round(x)},${Math.round(y)},${card.offsetWidth},${card.offsetHeight}`;
+  return {
+    x: x - window.scrollX,
+    y: y - window.scrollY,
+    w: card.offsetWidth,
+    h: card.offsetHeight,
+  };
 }
 
-/** 给单张卡写入快照背景；返回是否成功（卡片可见且有尺寸才写） */
-function frostCard(card) {
-  const rect = measureRect(card);
-  if (rect.width < 4 || rect.height < 4) return false;
+/** 几何指纹：定位用的同一个来源，只有「位置或尺寸变了」才算变 */
+function geomKey(card) {
+  const p = layoutPos(card);
+  return `${p.x},${p.y},${p.w},${p.h}`;
+}
+
+/** 当前压暗强度：读 :root 的 --bg-dim，非法值退回兜底 */
+function readDim() {
+  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--bg-dim"));
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : DIM_FALLBACK;
+}
+
+/** 烘焙全屏模糊底版。返回是否成功。
+    压暗层放在模糊之后：黑罩是均匀的线性衰减，与「先压暗再模糊」数学等价
+    （blur(c·x) = c·blur(x)，saturate 同样线性），所以一次 drawImage + 一次 fillRect
+    就能得到与实时取样同源的底版。
+
+    ⚠️已知极限：ctx.filter 在画布边界之外取的是透明黑，所以底版最外约 3σ（≈42px）
+    会向内逐渐压暗。卡片离视口边缘通常 ≥28px（容器 padding），只影响最外侧那几张卡
+    的外缘十几个像素、幅度 ≤2%，远低于 JND；视口窄到刚好贴住容器时才会被注意到。
+    要根治得做「底版外扩 PAD + 边缘像素拉伸 + 二次拷贝」，等实测确认有必要再加。 */
+function buildPlate(src) {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const { dw, dh } = coverSize(vw, vh);
-  // 只有壁纸层需要视口对齐：::after 盒原点在卡片左上角外 BLEED 处，
-  // 壁纸层要反向平移 (vw-dh)/2-rect.left+BLEED，让卡内看到的壁纸与页面背景逐像素对齐。
-  // ⚠️均匀色层（tint/压暗）和颗粒必须用 0 0 定位——它们的尺寸是 auto（=盒子大小），
-  // 若也写成视口对齐偏移会把整层平移出盒子（实测卡内只剩未压暗的壁纸，parity 崩掉）。
-  // 颗粒是噪点，相位与页面 .grain 差 60px 不可辨。
-  // 层序（上→下）：tint → 颗粒 → 压暗 → 壁纸。
-  // 快照必须完整复刻 backdrop 的取样内容：首页背后是 .bg（.grain 在上、.dim 次之、
-  // 壁纸最底），面板背后是 .more::before（36% 压暗 + 壁纸，无颗粒）——两个场景的
-  // backdrop 都含 36% 压暗（漏掉就是面板卡整体亮一档，实测 +33/通道），只有颗粒是首页独有。
-  // ⚠️6% 玻璃底色必须进快照层：::after 是 z-index:-1 的子级，按 CSS 绘制顺序恰好
-  // 盖住卡片自身的 background（元素背景先画、负 z 子级后画）——底色只留在元素上
-  // 会被快照盖掉（实测卡内少 6% 白）。放进滤镜栈数学等价：saturate 是线性算子
-  // 且白色饱和中性，saturate(tint(x)) ≡ tint(saturate(x))。
-  // 背景层经 CSS 变量喂给 ::after（伪元素无法直接写内联样式）。
-  const inPanel = !!card.closest(".more");
-  const tint = "linear-gradient(var(--frost-tint, rgba(255, 255, 255, 0.06)), var(--frost-tint, rgba(255, 255, 255, 0.06)))";
-  const layers = [tint];
-  const sizes = ["auto"];
-  const positions = ["0 0"];
-  const repeats = ["no-repeat"];
-  if (!inPanel) {
-    layers.push(`url("${GRAIN_SRC}")`);
-    sizes.push(`${GRAIN_SIZE}px ${GRAIN_SIZE}px`);
-    positions.push("0 0");
-    repeats.push("repeat");
+  const w = Math.max(1, Math.round(vw * PLATE_SCALE));
+  const h = Math.max(1, Math.round(vh * PLATE_SCALE));
+  const cv = document.createElement("canvas");
+  cv.width = w;
+  cv.height = h;
+  const ctx = cv.getContext("2d", { alpha: false });
+  if (!ctx) return false;
+  const { dw, dh } = coverSize(vw, vh, src.naturalWidth, src.naturalHeight);
+  ctx.filter = `blur(${BLUR * PLATE_SCALE}px) saturate(${SATURATE})`;
+  ctx.drawImage(
+    src,
+    ((vw - dw) / 2) * PLATE_SCALE,
+    ((vh - dh) / 2) * PLATE_SCALE,
+    dw * PLATE_SCALE,
+    dh * PLATE_SCALE
+  );
+  ctx.filter = "none";
+  const dim = readDim();
+  ctx.fillStyle = `rgba(0, 0, 0, ${dim})`;
+  ctx.fillRect(0, 0, w, h);
+  plate = cv;
+  lastSrc = src;
+  bakedDim = dim;
+  return true;
+}
+
+/** 把底版里属于这张卡的那一块拷进它的画布；返回是否成功 */
+function paintCard(card) {
+  if (!plate) return false;
+  const p = layoutPos(card);
+  if (p.w < 4 || p.h < 4) return false;
+
+  let cv = canvases.get(card);
+  if (cv && !cv.isConnected) cv = null; // Vue 重渲染把这颗外来节点带走了
+  if (!cv) {
+    cv = document.createElement("canvas");
+    cv.className = "frost-canvas";
+    cv.setAttribute("aria-hidden", "true");
+    // 外来节点：插在最前，减少与 Vue 子节点 diff 的相互干扰；层序由 z-index 决定，
+    // DOM 顺序不影响绘制
+    card.insertBefore(cv, card.firstChild);
+    canvases.set(card, cv);
   }
-  layers.push("linear-gradient(rgba(0, 0, 0, 0.36), rgba(0, 0, 0, 0.36))");
-  sizes.push("auto");
-  positions.push("0 0");
-  repeats.push("no-repeat");
-  layers.push(`url("${wallpaperUrl.value}")`);
-  sizes.push(`${dw.toFixed(1)}px ${dh.toFixed(1)}px`);
-  positions.push(`${((vw - dw) / 2 - rect.left + BLEED).toFixed(1)}px ${((vh - dh) / 2 - rect.top + BLEED).toFixed(1)}px`);
-  repeats.push("no-repeat");
-  card.style.setProperty("--frost-image", layers.join(", "));
-  card.style.setProperty("--frost-size", sizes.join(", "));
-  card.style.setProperty("--frost-position", positions.join(", "));
-  card.style.setProperty("--frost-repeat", repeats.join(", "));
+
+  // 画布铺到边框盒：卡片元素自身 1px 边框的内外两侧都要有模糊取样，
+  // 否则那一圈会透出未模糊的原始壁纸（白边）
+  const cssW = p.w + 2;
+  const cssH = p.h + 2;
+  const bw = Math.max(1, Math.round(cssW * CARD_SCALE));
+  const bh = Math.max(1, Math.round(cssH * CARD_SCALE));
+  if (cv.width !== bw || cv.height !== bh) {
+    cv.width = bw;
+    cv.height = bh;
+  }
+
+  const ctx = cv.getContext("2d");
+  if (!ctx) return false;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
+  const sx = (p.x - 1) * PLATE_SCALE;
+  const sy = (p.y - 1) * PLATE_SCALE;
+  const sw = cssW * PLATE_SCALE;
+  const sh = cssH * PLATE_SCALE;
+  // 越界部分裁掉再按比例落到目标矩形（drawImage 的越界行为各引擎不完全一致，
+  // 自己算一遍更可控）
+  const x0 = Math.max(0, sx);
+  const y0 = Math.max(0, sy);
+  const x1 = Math.min(plate.width, sx + sw);
+  const y1 = Math.min(plate.height, sy + sh);
+  if (x1 <= x0 || y1 <= y0) return false;
+
+  ctx.clearRect(0, 0, bw, bh);
+  ctx.drawImage(
+    plate,
+    x0,
+    y0,
+    x1 - x0,
+    y1 - y0,
+    ((x0 - sx) / sw) * bw,
+    ((y0 - sy) / sh) * bh,
+    ((x1 - x0) / sw) * bw,
+    ((y1 - y0) / sh) * bh
+  );
+
   card.classList.add("frost-ready");
   return true;
 }
 
-function unfrostCard(card) {
+function unpaint(card) {
   card.classList.remove("frost-ready");
-  card.style.removeProperty("--frost-image");
-  card.style.removeProperty("--frost-size");
-  card.style.removeProperty("--frost-position");
-  card.style.removeProperty("--frost-repeat");
+  const cv = canvases.get(card);
+  if (cv) {
+    cv.remove();
+    canvases.delete(card);
+  }
+  geom.delete(card);
 }
 
-function unfrostAll() {
+function teardown() {
   ready = false;
-  document.querySelectorAll(".glass.frost-ready").forEach(unfrostCard);
+  plate = null;
+  lastSrc = null;
+  bakedDim = null;
+  document.querySelectorAll(".glass").forEach(unpaint);
 }
 
-/** 扫一遍所有卡：没烘焙的烘焙、几何变了的重烘焙。
-    单卡成本是一次 offset 读加几条样式写入，量小，可以整秒跑一次 */
-function scan() {
-  if (document.hidden || !ready) return;
-  // 入场/揭幕动画未播完：量 rect 带着位移，快照会错位且事后不自愈
-  if (entranceRunning()) return;
-  // 面板正在做错峰入场动画：同上，等下一轮
-  if (document.querySelector(".more.anim-in")) return;
+/** 扫一遍：没画的画、几何变了的重拷（force 时全部重拷）。
+    单卡成本是一次 offset 读加一次 drawImage，量小，可以整秒跑一次。
+    重拷**不摘类**——不换渲染路径就不会有可见的变化，这正是它比上一版稳的地方。 */
+function scan(force = false) {
+  if (!ready || document.hidden) return;
   document.querySelectorAll(".glass").forEach((card) => {
-    // 当前不可见的卡（二级面板收起时 display:none）：留着旧快照不动。
-    // 拆掉等于"每次打开面板都重走一次渲染路径切换"，反而把它暴露到明面上
+    // 当前不可见的卡（二级面板收起时 display:none）：留着旧快照不动，等它可见
     if (card.offsetWidth < 4 || card.offsetHeight < 4) return;
     const key = geomKey(card);
-    const baked = card.classList.contains("frost-ready");
-    if (baked && geom.get(card) === key) return;
-    // 几何变过：快照还铺在旧位置上，与壁纸整体错位 → 拆掉按新位置重烘焙
-    if (baked) unfrostCard(card);
-    if (frostCard(card)) geom.set(card, key);
-  });
-}
-
-/** 载入链路的关键帧动画（首页 rise / 面板 cell-in·top-in / 揭幕 bg-fade）是否仍在跑 */
-const ENTRANCE_ANIMS = /^(rise|cell-in|top-in|bg-fade)$/;
-function entranceRunning() {
-  return document.getAnimations().some(
-    (a) => a.playState === "running" && a.animationName && ENTRANCE_ANIMS.test(a.animationName)
-  );
-}
-
-/** 等入场动画真正播完再量取卡片几何——动画中量 rect 会把 transform 位移一起
-    算进去，快照对齐就错了。
-    只有"壁纸晚于揭幕才到"（极光兜底之后）这条路径才会真的等；正常路径下
-    beginPrep 早在揭幕前就量完了，那时没有动画、卡片静止在最终位置 */
-function waitEntranceSettled() {
-  return new Promise((resolve) => {
-    const t0 = Date.now();
-    const tick = () => {
-      if (!entranceRunning() || Date.now() - t0 > 4000) return resolve();
-      setTimeout(tick, 150);
-    };
-    tick();
-  });
-}
-
-/** 量几何的时机：已揭幕 → 等入场动画收尾；未揭幕 → 立即，此时 .page 没有
-    .ready、rise 动画根本没挂上，卡片就在最终位置，可以直接量 */
-function finalLayout() {
-  if (!document.querySelector(".page.ready")) return Promise.resolve();
-  return waitEntranceSettled();
-}
-
-/** 壁纸原始尺寸决定 cover 参数。优先读 wallpaperBus：Background 的探针加载时
-    就已经知道 naturalWidth/Height，零成本；读不到才自己再加载一次（只取尺寸
-    不读像素，跨域壁纸也无 CORS 要求）——这一步在揭幕门闩的关键路径上，
-    能省掉一次图片加载（缓存 miss 时就是又一次网络往返）就省掉 */
-function resolveSize() {
-  const s = wallpaperSize.value;
-  if (s && s.w > 0 && s.h > 0) {
-    imgW = s.w;
-    imgH = s.h;
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.decoding = "async";
-    img.onload = () => {
-      imgW = img.naturalWidth;
-      imgH = img.naturalHeight;
-      resolve();
-    };
-    img.onerror = resolve;
-    img.src = wallpaperUrl.value;
+    if (!force && card.classList.contains("frost-ready") && geom.get(card) === key) return;
+    if (paintCard(card)) geom.set(card, key);
   });
 }
 
 /** 等布局落定：连续两次采样指纹一致就算稳。
     天气卡、RSS 列表是接口到位才插入的（v-if），它们进来会让右列推移一整行
-    （实测 182px）——快照必须在那之后量，否则挂上就是错的，而修正它必然落在
-    揭幕之后（=可见的变化）。最多等 LAYOUT_SETTLE_MS：宁可接受一次晚到的重烘焙，
-    也不能把揭幕无限拖住。 */
+    （实测 182px）——底版虽然与布局无关，但每张卡的取样位置必须在那之后量。
+    最多等 LAYOUT_SETTLE_MS：宁可接受一次晚到的重拷（现在只花微秒级、且不换
+    渲染路径，肉眼看不到），也不把揭幕无限拖住。 */
 const LAYOUT_SETTLE_MS = 200;
 function layoutStable() {
   return new Promise((resolve) => {
@@ -280,28 +284,66 @@ function layoutStable() {
   });
 }
 
-/** 揭幕前准备：等字体 → 等布局落定 → 拿尺寸 → 烘焙 → 等这一帧真的画出来。
-    整条链都跑在载入遮罩还盖着的时候，挂载瞬间的渲染路径切换就没人看得见。
-    每一步都有上限，绝不把揭幕拖住（App.vue 那边还有 500ms 门闩兜底，本链最坏
-    150 + 200 + 2 帧 ≈ 380ms）。返回本轮落定的 Promise，供门闩 await */
+/** 取「页面正在展示的那张壁纸」的像素源。
+    优先用 Background 里那个 <img>：同一份像素，连"缓存是否命中同一张图"的隐患都没有。
+    （随机壁纸 API 每次 302 到不同的图，另起一次加载有可能拿到另一张。）
+    读不到才自己加载一次——跨域只画不读，不需要 CORS。 */
+async function resolveSource() {
+  // 模板引用要等这一轮渲染落地才拿得到
+  await new Promise((r) => requestAnimationFrame(r));
+  const el = wallpaperEl.value;
+  if (el) {
+    if (!el.complete) {
+      await withTimeout(
+        new Promise((r) => {
+          el.addEventListener("load", r, { once: true });
+          el.addEventListener("error", r, { once: true });
+        }),
+        800
+      );
+    }
+    if (el.naturalWidth > 0) {
+      try {
+        await withTimeout(el.decode ? el.decode() : Promise.resolve(), 400);
+      } catch {
+        // 解码失败也照样能画（已 load 过），继续
+      }
+      return el;
+    }
+  }
+  const img = new Image();
+  img.decoding = "async";
+  await withTimeout(
+    new Promise((r) => {
+      img.onload = r;
+      img.onerror = r;
+      img.src = wallpaperUrl.value;
+    }),
+    1500
+  );
+  return img.naturalWidth > 0 ? img : null;
+}
+
+/** 揭幕前准备：等字体 → 等布局落定 → 取像素源 → 烘底版 → 逐卡拷贝 → 等这一帧
+    真的画出来。整条链都跑在载入遮罩还盖着的时候，挂载瞬间的渲染路径切换
+    （实时取样 → 烘焙纹理）就没人看得见。
+    每一步都有上限，绝不把揭幕拖住（App.vue 那边还有 500ms 门闩兜底）。 */
 function beginPrep() {
   if (prepping) return prepSettled || Promise.resolve();
   prepping = true;
   prepSettled = new Promise((r) => (resolvePrep = r));
   const fonts = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
   withTimeout(fonts, 150)
-    .then(finalLayout)
     .then(layoutStable)
-    .then(resolveSize)
-    .then(() => {
-      if (!eligible()) {
-        unfrostAll();
+    .then(resolveSource)
+    .then((src) => {
+      if (!src || !eligible() || !buildPlate(src)) {
+        teardown();
         return undefined;
       }
       ready = true;
       scan();
-      // 烘焙这一帧必须真的画出去再放行揭幕（此刻遮罩 opacity 仍是 1）。少这一等，
-      // 揭幕那一帧可能先画、快照下一帧才上，等于没藏住。
+      // 拷贝这一帧必须真的画出去再放行揭幕（此刻遮罩 opacity 仍是 1）
       return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     })
     .catch(() => {
@@ -318,43 +360,66 @@ function beginPrep() {
 }
 
 /** 揭幕门闩：App.vue 在揭幕前有界 await 它，并借此**触发**烘焙。
-    烘焙不放"壁纸一就绪"那一刻，是因为快照必须在布局落定后才量（见文件头时机）。
-    无壁纸（极光兜底）时无事可等，直接放行 */
+    无壁纸（极光兜底）或能力不支持时无事可等，直接放行 */
 export function whenFrostSettled() {
   gateCalled = true;
   if (!eligible()) return Promise.resolve();
   return beginPrep();
 }
 
+/** 面板显隐观察：.more 加/去类时在**本帧绘制之前**同步补拷，
+    否则打开面板会先露出最多一帧的实时模糊（旧版正是这条残留）。 */
+function watchPanel() {
+  const el = document.querySelector(".more");
+  if (el === panelEl && panelMo) return;
+  if (panelMo) {
+    panelMo.disconnect();
+    panelMo = null;
+  }
+  panelEl = el;
+  if (!el) return;
+  panelMo = new MutationObserver(() => {
+    if (!ready) return;
+    // 收起（display:none）时量不到几何，等下次可见再拷
+    if (el.offsetWidth < 4) return;
+    scan();
+  });
+  panelMo.observe(el, { attributes: true, attributeFilter: ["class", "style"] });
+}
+
 function onResize() {
   if (!ready) return;
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => {
+  resizeTimer = setTimeout(async () => {
     if (!eligible()) {
-      unfrostAll();
+      teardown();
       return;
     }
-    // 视口变了：cover 参数与偏移全部重算（快照层是纯 CSS 背景，重算即生效）
-    document.querySelectorAll(".glass.frost-ready").forEach(unfrostCard);
-    beginPrep();
+    const src = await resolveSource();
+    if (!src || !buildPlate(src)) {
+      teardown();
+      return;
+    }
+    // 视口变了：底版重烘，每张卡按新几何全部重拷。全程不摘 .frost-ready，
+    // 渲染路径不切换，所以拖拽窗口时看不到任何跳变
+    document.querySelectorAll(".glass").forEach((c) => geom.delete(c));
+    scan(true);
   }, 300);
 }
 
 export function initFrost() {
   if (typeof window === "undefined") return;
-  // 壁纸就绪（bg-ready 前 wallpaperBus 已写入）→ 只做图层提升，烘焙交给揭幕门闩；
-  // 清空（回退极光）→ 拆除快照
   watch(
     wallpaperUrl,
     (v) => {
-      const on = !!v && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+      const on = !!v && eligible();
       // 桌面端从首帧起保持卡片图层提升：文字反走样在整个载入+快照挂载过程
       // 保持一致，frost 挂载瞬间不再有提升/降级带来的渲染切换
       document.body.classList.toggle("frost-desktop", on);
       if (!on) {
-        unfrostAll();
+        teardown();
       } else if (gateCalled) {
-        // 壁纸晚于揭幕才到（2.8s 极光兜底之后）：没有遮罩可藏了，就地补烘一次
+        // 壁纸晚于揭幕才到（2.8s 极光兜底之后）：没有遮罩可藏了，就地补一次
         beginPrep();
       }
       // 门闩还没来 → 先不动，等 whenFrostSettled 在揭幕前那一刻触发
@@ -362,6 +427,21 @@ export function initFrost() {
     { immediate: true }
   );
   window.addEventListener("resize", onResize);
-  // 兼作布局监护：没烘焙的补烘、几何变了的重烘（见 scan）
-  setInterval(scan, 1000);
+  // 开发期便利：--bg-dim 是实时生效的 CSS 变量（背景层立刻变），但底版是烘焙的，
+  // 不重建就会出现「背景亮了、卡片还是旧的」这种假象。这里盯着它，变了就重烘。
+  // 生产构建时这段被摇掉（import.meta.env.DEV 恒为 false）。
+  if (import.meta.env.DEV) {
+    setInterval(() => {
+      if (!ready || !lastSrc || readDim() === bakedDim) return;
+      if (buildPlate(lastSrc)) scan(true);
+    }, 400);
+  }
+  // 兼作布局监护：没画的补、几何变了的重拷；同时等面板分包到位后挂观察器
+  setInterval(() => {
+    watchPanel();
+    scan();
+  }, 1000);
 }
+
+// 调试入口：当前底版是否就绪（无副作用）
+export const frostActive = () => ready;

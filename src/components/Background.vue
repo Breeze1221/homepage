@@ -6,16 +6,24 @@
       <span class="blob b3"></span>
       <span class="blob b4"></span>
     </div>
-    <img v-if="custom" :src="bgSrcRef" class="custom" :class="{ snap: bgSnap }" alt="" @error="onBgError" />
+    <img
+      v-if="custom"
+      ref="imgEl"
+      :src="bgSrcRef"
+      class="custom"
+      :class="{ snap: bgSnap }"
+      alt=""
+      @error="onBgError"
+    />
     <div v-if="custom" class="dim" :class="{ snap: bgSnap }"></div>
     <div class="grain"></div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, watch, onMounted, onUnmounted } from "vue";
 import { siteConfig } from "@/config";
-import { wallpaperUrl, wallpaperSize } from "@/utils/wallpaperBus";
+import { wallpaperUrl, wallpaperSize, wallpaperEl } from "@/utils/wallpaperBus";
 
 // 背景源：配置的随机壁纸 API 优先，否则探测本地 public/images/background.jpg；
 // 都没有/加载失败则保持极光渐变
@@ -28,6 +36,12 @@ const custom = ref(false);
 // 否则会出现「卡片已按最终壁纸烘焙、背景还在从近黑淡入」的错配。
 // 晚于揭幕才到（2.8s 极光兜底之后）则保留淡入。
 const bgSnap = ref(false);
+// 展示层 <img> 的模板引用：交给 frost.js 当模糊底版的像素源（见 wallpaperBus）。
+// 用模板引用而不是让 frost 自己去 querySelector/再加载一次，既解耦又保证是同一份像素
+const imgEl = ref(null);
+watch(imgEl, (el) => {
+  wallpaperEl.value = el || null;
+});
 // 展示层加载失败（探针成功但展示请求挂了）时回退极光，别留一块深色底。
 // 同时清掉已写入的面板壁纸层与全屏兜底引用——否则那两处还指着加载失败的
 // 坏 URL，与首页"已回退极光"的状态不一致
@@ -38,6 +52,15 @@ const onBgError = () => {
   wallpaperSize.value = null;
   document.documentElement.style.removeProperty("--bg-src");
 };
+
+// 极光模式（壁纸未就绪 / 全部源加载失败）：卡片不再需要那层实时 backdrop-filter。
+// 极光是 4 个 39vw 的四段线性过渡径向渐变，14px 高斯对它的改变低于 JND（同一性质
+// 在极光本身的实现里已经验证过：原来 110px 模糊的 4 个光斑，换成 5 段 alpha 近似
+// 高斯渐变后像素差不可辨，CPU 降 41%）。而光斑每 250ms 漂移一次，会让 13 张卡的
+// backdrop-filter 定期全部重取景——这笔开销换不来任何可见效果。
+// 唯一可见差别：背景那层 4% 的颗粒不再被模糊抹平，卡片内会透出来（幅度极低）。
+// 壁纸就绪后由 frost 接管（烘焙快照），这个类随之摘掉。
+watch(custom, (v) => document.body.classList.toggle("bg-aurora", !v), { immediate: true });
 
 // 极光背景随昼夜时段变色（黎明 / 白天 / 黄昏 / 夜晚）
 const palettes = {
@@ -202,6 +225,7 @@ onMounted(() => {
 onUnmounted(() => {
   clearInterval(paletteTimer);
   clearInterval(driftTimer);
+  document.body.classList.remove("bg-aurora");
 });
 </script>
 
@@ -323,11 +347,13 @@ onUnmounted(() => {
   animation: bg-fade 0.7s ease both;
 }
 
-/* 壁纸压暗层：与 .custom 同步淡入，避免壁纸还在淡入时黑色罩子已经到位 */
+/* 壁纸压暗层：与 .custom 同步淡入，避免壁纸还在淡入时黑色罩子已经到位。
+   强度取全局 --bg-dim（见 style.css :root）——面板背景和毛玻璃快照底版共用
+   同一个值，三处任何一处单独写死都会让卡片内外亮度脱节。 */
 .dim {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.36);
+  background: rgba(0, 0, 0, var(--bg-dim, 0.22));
   animation: bg-fade 0.7s ease both;
 }
 

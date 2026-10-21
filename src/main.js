@@ -26,6 +26,6 @@ if ("requestIdleCallback" in window) {
 
 createApp(App).mount("#app");
 
-// 毛玻璃快照：壁纸就绪后把各卡背后的静态区域烘焙成 background-image 并撤掉
-// 实时 backdrop-filter，交互脏区不再触发逐帧重模糊（详见 utils/frost.js）
+// 毛玻璃快照：壁纸就绪后烘焙一张全屏模糊底版，各卡只把属于自己那块 drawImage 拷
+// 过来并撤掉实时 backdrop-filter，交互脏区不再触发逐帧重模糊（详见 utils/frost.js）
 initFrost();

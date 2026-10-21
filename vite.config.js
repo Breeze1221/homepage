@@ -20,6 +20,24 @@ const neteaseProxy = (rewrite) => ({
   rewrite,
 });
 
+// 本地 dev/preview **没有** Vercel 的 serverless 函数：`/api/*` 会落到 SPA fallback
+// （返回 index.html），音乐解析 fetch 拿到 HTML、JSON 解析失败 → 静默降级到 Meting，
+// 而热歌榜绝大多数是 VIP 曲、Meting 对它们只有 404 —— 现象就是「点了播放没声」。
+// 配 DEV_API_ORIGIN=https://<你的线上域名> 即可把 /api 反代到线上。
+// ⚠️Origin/Referer 必须改写成该源：线上白名单按「Origin 的 host === 请求 URL 的 host」
+// 判同源（见 lib/http.mjs），不改就会 403「来源不在白名单」。
+// 默认留空 = 不启用，模板仓库 clone 下来不会有任何硬编码域名。
+const API_ORIGIN = process.env.DEV_API_ORIGIN || "";
+const apiProxy = API_ORIGIN
+  ? {
+      "/api": {
+        target: API_ORIGIN,
+        changeOrigin: true,
+        headers: { Origin: API_ORIGIN, Referer: `${API_ORIGIN}/` },
+      },
+    }
+  : {};
+
 /**
  * 构建产物字体裁剪：public/font/ 里 7 个候选字体共约 680KB，但 siteFont
  * 同一时刻只用一个。开发时保留全部（方便 config.js 一行切换预览），
@@ -56,6 +74,7 @@ export default defineConfig({
   // 博客 RSS 同源代理（生产环境由 vercel.json 的 rewrites 提供）
   server: {
     proxy: {
+      ...apiProxy,
       "/blog-rss": {
         target: "https://blog.zlion.top",
         changeOrigin: true,
@@ -68,6 +87,7 @@ export default defineConfig({
   },
   preview: {
     proxy: {
+      ...apiProxy,
       "/blog-rss": {
         target: "https://blog.zlion.top",
         changeOrigin: true,
