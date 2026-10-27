@@ -2,13 +2,13 @@
 
 export const siteConfig = {
   // 站点名称（左上角 Logo 文字与页脚）
-  siteName: "My Site",
+  siteName: "Breezexing.xyz",
   // 站名手写体（可选值见 src/fonts.js 的 SITE_FONTS，写错自动回退 pacifico）：
   //   pacifico   圆润复古手写（默认）   dancing  优雅拉丁书法
   //   greatvibes 铜版体、花饰最多       lobster  复古粗体连字
   //   kaushan    笔刷手写、有动感       sacramento 细单线连笔、最轻盈
   //   caveat     随性铅笔手写
-  siteFont: "pacifico",
+  siteFont: "greatvibes",
   // Logo 图标（可选）：留空 = 使用内置的「Z」徽章 SVG；
   // 填图片路径或 URL 即可整体替换（载入页、左上角、浏览器标签页 favicon 同步生效），
   // 例如 "/images/logo.png"（图片放 public/images/ 目录）或 "https://xxx.com/logo.png"
@@ -23,14 +23,14 @@ export const siteConfig = {
   motto: [
     "记录、分享、创造。",
     "欢迎来到我的个人主页，这里收录了我的博客与资源站。",
-    "把折腾当成生活方式。",
+    "山高自自有可行路，水深自有渡船人❤。",
   ],
   // 建站日期（页脚显示「本站已运行 N 天」）
-  siteStart: "2025-01-01",
+  siteStart: "2026-01-01",
   // 署名（页脚版权显示的名字）
-  author: "Your Name",
+  author: "Breeze",
   // 署名链接（可选）：页脚署名会超链接到此地址，如你的主页仓库，留空则显示纯文字
-  repo: "https://github.com/your-github-name/homepage",
+  repo: "https://github.com/breeze1221/homepage",
   // 鼠标特效：自定义圆点光标 + 移动/点击涟漪
   clickEffect: true,
   // 卡片 3D 倾联动效：鼠标悬停（触屏按住）卡片时 3D 倾斜 + 微放大 + 光泽跟随，
@@ -88,9 +88,9 @@ export const siteConfig = {
   panelTips: ["🎆 欢迎来到探索面板", "🎵 卡片里有全屏播放器", "💡 再点右上角「返回」回来"],
   panelCards: ["news", "hotlist", "music", "epic", "history", "monitor"],
   // GitHub 用户名（GitHub 卡展示 Followers / Repos 数据；不把 github 加进 panelCards 就不显示）
-  githubUser: "your-github-name",
+  githubUser: "breeze1221",
   // 网易云音乐歌单 ID（音乐播放卡），从歌单页地址栏 playlist?id=xxx 获取
-  musicPlaylist: "3778678",
+  musicPlaylist: "421405780",
   // ── 播放直链来源 ────────────────────────────────
   //   "meting"（默认）：走公共 Meting 接口，开箱即用，不依赖任何额外部署。
   //   "proxy"：走本仓库自带的 serverless 解析（api/ + lib/，跟主页一起部署在 Vercel）——
@@ -102,7 +102,7 @@ export const siteConfig = {
   // 站点监控卡（monitor）：检测各站点是否可访问（访客浏览器直连探测，
   // 显示连通状态与响应耗时，60 秒自动刷新）。url 需带 https://
   siteMonitors: [
-    { name: "示例站点", url: "https://www.example.com/" },
+    { name: "博客", url: "https://blog.breezexing.xyz/" },
     // { name: "博客", url: "https://blog.example.com/" },
   ],
   // 热榜平台与顺序（hotlist 卡），可用 key：
@@ -121,7 +121,7 @@ export const socialLinks = [
     name: "GitHub",
     icon: "github",
     tip: "去 GitHub 看看",
-    url: "https://github.com/your-github-name",
+    url: "https://github.com/breeze1221",
   },
   {
     name: "Email",
@@ -136,9 +136,9 @@ export const socialLinks = [
 export const siteLinks = [
   {
     name: "博客",
-    desc: "blog.example.com",
+    desc: "blog.breezexing.xyz",
     icon: "blog",
-    url: "https://blog.example.com/",
+    url: "https://blog.breezexing.xyz/",
   },
   {
     name: "资源站",
