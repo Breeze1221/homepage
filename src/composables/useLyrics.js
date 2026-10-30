@@ -2,6 +2,10 @@ import { ref } from "vue";
 import { siteConfig } from "../config.js";
 import { memoSet, songIdOf } from "../utils/netease.js";
 
+const customApiBase = () => String(siteConfig.musicApiBase || "").replace(/\/$/, "");
+const customApiEnabled = () => siteConfig.musicServer === "netease" && !!customApiBase();
+const customLyricUrl = (id) => `${customApiBase()}/lyric?id=${encodeURIComponent(id)}&_x=${Math.random()}`;
+
 /** LRC 文本 → [{ time, text }] 升序（纯函数，便于单测） */
 export function parseLRC(lrc) {
   if (!lrc) return [];
@@ -138,9 +142,13 @@ export function createLyrics({ playlist, index }) {
       }
     }
     const id = songIdOf(t);
-    const server = siteConfig.musicServer === "tencent" ? "tencent" : "netease";
-    const fallback = id ? `https://api.injahow.cn/meting/?server=${server}&type=lrc&id=${encodeURIComponent(id)}` : "";
-    if (fallback && !urls.includes(fallback)) urls.push(fallback);
+    if (id && customApiEnabled()) {
+      urls.push(customLyricUrl(id));
+    } else {
+      const server = siteConfig.musicServer === "tencent" ? "tencent" : "netease";
+      const fallback = id ? `https://api.injahow.cn/meting/?server=${server}&type=lrc&id=${encodeURIComponent(id)}` : "";
+      if (fallback && !urls.includes(fallback)) urls.push(fallback);
+    }
     if (!urls.length) return;
 
     lrcAbort = new AbortController();
@@ -163,7 +171,16 @@ export function createLyrics({ playlist, index }) {
         }
         const text = await fetchLrcText(url, myCtrl.signal);
         if (!isCurrent()) return false;
-        const lines = parseLrcOrEmpty(text);
+        let lrcText = text;
+        if (customApiEnabled() && url.startsWith(customApiBase())) {
+          try {
+            const body = JSON.parse(text);
+            lrcText = body?.lrc?.lyric || "";
+          } catch {
+            lrcText = "";
+          }
+        }
+        const lines = parseLrcOrEmpty(lrcText);
         if (lines) {
           writeLrcCache(key, text, lines);
           applyLrcLines(t, lines);
@@ -191,9 +208,13 @@ export function createLyrics({ playlist, index }) {
     const urls = [];
     if (next.lrc && /^(https?:)?\/\//.test(next.lrc)) urls.push(next.lrc);
     const id = songIdOf(next);
-    const server = siteConfig.musicServer === "tencent" ? "tencent" : "netease";
-    const fallback = id ? `https://api.injahow.cn/meting/?server=${server}&type=lrc&id=${encodeURIComponent(id)}` : "";
-    if (fallback && !urls.includes(fallback)) urls.push(fallback);
+    if (id && customApiEnabled()) {
+      urls.push(customLyricUrl(id));
+    } else {
+      const server = siteConfig.musicServer === "tencent" ? "tencent" : "netease";
+      const fallback = id ? `https://api.injahow.cn/meting/?server=${server}&type=lrc&id=${encodeURIComponent(id)}` : "";
+      if (fallback && !urls.includes(fallback)) urls.push(fallback);
+    }
     if (!urls.length) return;
     prefetching = true;
     (async () => {

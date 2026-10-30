@@ -64,7 +64,7 @@
       stroke-width="7"
       stroke-linecap="round"
       stroke-linejoin="round"
-      transform="translate(2 2)"
+      transform="translate(3 3)"
     />
 
     <!-- B 主体 -->
@@ -75,6 +75,7 @@
       stroke-width="5.5"
       stroke-linecap="round"
       stroke-linejoin="round"
+      transform="translate(1 1)"
     />
 
     <!-- 主体高光，增强立体感 -->
@@ -84,6 +85,7 @@
       stroke="rgba(255,255,255,0.45)"
       stroke-width="1.4"
       stroke-linecap="round"
+      transform="translate(1 1)"
     />
   </svg>
 </template>

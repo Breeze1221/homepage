@@ -16,6 +16,13 @@ const METING_APIS = [
 
 const musicServer = () => siteConfig.musicServer === "tencent" ? "tencent" : "netease";
 const proxySource = () => musicServer() === "tencent" ? "tx" : "wy";
+const customApiBase = () => String(siteConfig.musicApiBase || "").replace(/\/$/, "");
+const customApiEnabled = () => musicServer() === "netease" && !!customApiBase();
+
+function customApiUrl(path, params = {}) {
+  const query = new URLSearchParams(params);
+  return `${customApiBase()}${path}?${query}`;
+}
 
 function normalizeTrackUrl(url, server) {
   const normalized = String(url || "").replace(/^http:\/\//i, "https://");
@@ -94,6 +101,23 @@ let winnerApi = 0; // 本轮竞速胜出的源；单曲降级链优先复用它
 async function fetchPlaylistAll() {
   const id = siteConfig.musicPlaylist;
   const server = musicServer();
+  if (customApiEnabled()) {
+    const response = await fetch(customApiUrl("/playlist/detail", { id, _x: Math.random() }));
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    const sourceTracks = data?.playlist?.tracks || [];
+    const tracks = sourceTracks.map((item) => ({
+      name: item.name || "Unknown",
+      artist: (item.ar || []).map((artist) => artist.name).filter(Boolean).join(" / ") || "Unknown",
+      url: "",
+      pic: (item.al?.picUrl || "").replace(/^http:\/\//i, "https://"),
+      lrc: "",
+      id: item.id || "",
+      server,
+    })).filter((item) => item.id);
+    if (!tracks.length) throw new Error("empty playlist");
+    return tracks;
+  }
   const apis = METING_APIS.map((api) => api.replace(":server", server));
   const ctrls = [];
   const timers = [];
@@ -133,7 +157,7 @@ async function fetchPlaylistAll() {
 }
 
 async function upgradeCovers(tracks) {
-  if (musicServer() !== "netease") return;
+  if (musicServer() !== "netease" || customApiEnabled()) return;
   const items = tracks.map((t) => ({ t, id: songIdOf(t) })).filter((x) => x.id);
   const CHUNK = 100;
   const batchTimers = [];
@@ -171,7 +195,7 @@ function scheduleCoverUpgrade() {
 
 // ── 歌单预载：页面一打开就开始拉，进二级面板时多半已就绪 ────────────────
 // 缓存 key 绑定歌单 ID：配置改了歌单立即失效，不用清缓存/无痕
-const playlistCacheKey = `music_playlist_v5_${musicServer()}_${siteConfig.musicPlaylist || "default"}`;
+const playlistCacheKey = `music_playlist_v6_${customApiBase() || musicServer()}_${siteConfig.musicPlaylist || "default"}`;
 // 清理旧版无 ID 的遗留缓存（已不再读取，白占空间）
 try {
   localStorage.removeItem("music_playlist_v2");
@@ -353,6 +377,38 @@ function prefetchWinnerFor(i) {
   return "";
 }
 
+const customUrlMemo = new Map();
+const CUSTOM_URL_MEMO_MS = 90 * 1000;
+
+async function resolveCustomUrl(t) {
+  const id = songIdOf(t);
+  if (!id || !customApiEnabled()) return "";
+  const key = String(id);
+  const cached = customUrlMemo.get(key);
+  if (cached && Date.now() - cached.at < CUSTOM_URL_MEMO_MS) return cached.url;
+  const requests = [
+    customApiUrl("/song/url/v1", { id, level: "exhigh", _x: Math.random() }),
+    customApiUrl("/song/url", { id, br: "320000", _x: Math.random() }),
+  ];
+  for (const url of requests) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) continue;
+      const body = await response.json();
+      const item = body?.data?.[0];
+      const playable = item?.code === 200 && item?.url;
+      if (playable) {
+        const direct = String(item.url).replace(/^http:\/\//i, "https://");
+        customUrlMemo.set(key, { url: direct, at: Date.now() });
+        return direct;
+      }
+    } catch {
+      // 继续尝试备用接口
+    }
+  }
+  return "";
+}
+
 // 后台探活下一首（顺序模式的下一曲）候选源：切歌时命中 direct 复用，减少静音空档
 function prefetchNextTrack() {
   const n = playlist.value.length;
@@ -361,6 +417,15 @@ function prefetchNextTrack() {
   const idx = (index.value + 1) % n;
   if (prefetchMemo && prefetchMemo.index === idx && Date.now() - prefetchMemo.at < 5 * 60 * 1000) return;
   const nt = playlist.value[idx];
+  if (customApiEnabled()) {
+    prefetchOn = true;
+    resolveCustomUrl(nt)
+      .then((url) => {
+        if (url) prefetchMemo = { index: idx, url, at: Date.now() };
+      })
+      .finally(() => (prefetchOn = false));
+    return;
+  }
   const cands = nt ? metingCandidates(nt).slice(0, musicServer() === "tencent" ? 2 : 3) : [];
   if (!cands.length) return;
   prefetchOn = true;
@@ -397,9 +462,8 @@ function loadAndPlay(i, autoPlay = true) {
   playing.value = false;
   resolving.value = false;
 
-  // Meting 候选链：歌单竞速的胜出源优先（当前网络下它最可达），其余源殿后。
-  // 代理模式下它同时扮演两个角色——代理没结果时的兜底，以及代理直链失效后的降级链。
-  const meting = metingCandidates(t);
+  // Meting 候选链：自定义 API 模式下改由歌曲 URL接口异步解析。
+  const meting = customApiEnabled() ? [] : metingCandidates(t);
 
   lyricsCtl.loadLyrics(t);
   lyricsCtl.prefetchNextLyrics();
@@ -431,6 +495,25 @@ function loadAndPlay(i, autoPlay = true) {
     else if (race && musicServer() !== "tencent") playWithProbe(list.slice(), ver);
     else playCurrentUrl(true, ver);
   };
+
+  if (customApiEnabled()) {
+    const pw = prefetchWinnerFor(i);
+    if (pw) {
+      begin([pw], false);
+      return;
+    }
+    const hintTimer = setTimeout(() => {
+      if (ver === loadVersion) resolving.value = true;
+    }, 250);
+    resolveCustomUrl(t).then((url) => {
+      clearTimeout(hintTimer);
+      if (ver !== loadVersion) return;
+      resolving.value = false;
+      if (url) begin([url], false);
+      else onAudioError();
+    });
+    return;
+  }
 
   if (!proxyEnabled()) {
     // 只走 Meting：完全不碰代理，候选链内部竞速

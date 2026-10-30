@@ -90,9 +90,11 @@ export const siteConfig = {
   // GitHub 用户名（GitHub 卡展示 Followers / Repos 数据；不把 github 加进 panelCards 就不显示）
   githubUser: "breeze1221",
   // 音乐平台：netease 网易云 / tencent QQ 音乐
-  musicServer: "tencent",
-  // QQ 音乐歌单 ID，从歌单地址 /playlist/xxx 获取；网易云则填写 playlist?id=xxx 的 id
-  musicPlaylist: "8213917591",
+  musicServer: "netease",
+  // 网易云歌单 ID，从歌单地址 playlist?id=xxx 获取
+  musicPlaylist: "601947159",
+  // 自定义网易云兼容 API（提供 /playlist/detail、/song/url、/lyric）
+  musicApiBase: "https://musicapi.breezexing.xyz",
   // ── 播放直链来源 ────────────────────────────────
   //   "meting"（默认）：走公共 Meting 接口，开箱即用，不依赖任何额外部署。
   //   "proxy"：走本仓库自带的 serverless 解析（api/ + lib/，跟主页一起部署在 Vercel）——
