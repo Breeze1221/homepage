@@ -4,9 +4,9 @@
       <Icon name="link" :size="15" />
       <span>网站列表</span>
     </div>
-    <div class="grid" :style="{ gridTemplateColumns: `repeat(${cols}, 1fr)` }">
+    <div class="grid" :style="{ gridTemplateColumns: `repeat(${primaryCols}, minmax(0, 1fr))` }">
       <a
-        v-for="s in siteLinks"
+        v-for="s in primaryLinks"
         :key="s.url"
         :href="s.url"
         target="_blank"
@@ -20,22 +20,75 @@
         </span>
       </a>
     </div>
+
+    <button
+      v-if="moreLinks.length && !expanded"
+      type="button"
+      class="more-toggle"
+      :aria-expanded="expanded"
+      aria-controls="more-sites"
+      @click="expanded = true"
+    >
+      <span>更多网站</span>
+      <Icon name="chevron-down" :size="16" />
+    </button>
+
+    <div
+      v-if="expanded && moreLinks.length"
+      id="more-sites"
+      class="grid more-grid"
+      :style="{ gridTemplateColumns: `repeat(${moreCols}, minmax(0, 1fr))` }"
+    >
+      <a
+        v-for="s in moreLinks"
+        :key="s.url"
+        :href="s.url"
+        target="_blank"
+        rel="noopener"
+        class="glass site-card"
+      >
+        <span class="icon"><Icon :name="s.icon" :size="22" /></span>
+        <span class="meta">
+          <span class="name">{{ s.name }}</span>
+          <span class="desc">{{ s.desc }}</span>
+        </span>
+      </a>
+    </div>
+
+    <button
+      v-if="moreLinks.length && expanded"
+      type="button"
+      class="more-toggle"
+      :aria-expanded="expanded"
+      aria-controls="more-sites"
+      @click="expanded = false"
+    >
+      <span>收起网站</span>
+      <Icon name="chevron-down" :size="16" class="rotated" />
+    </button>
   </div>
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { siteLinks } from "@/config";
 import Icon from "@/components/Icon.vue";
 
-// 列数按站点数自适应，保证一行铺满与上方天气卡齐宽不留空格：
-// 1→1 列 2→2 列 3→3 列 4→2×2 5 个以上→3 列换行
-const cols = computed(() => {
-  const n = siteLinks.length;
+const expanded = ref(false);
+// 前六个站点固定显示为两排，后续站点收进下拉区域。
+const primaryLinks = computed(() => siteLinks.slice(0, 6));
+const moreLinks = computed(() => siteLinks.slice(6));
+
+// 列数按当前分组的站点数自适应，避免空白并保持与上方卡片的宽度协调。
+const columnsFor = (links) => {
+  const n = links.length;
   if (n <= 3) return n || 1;
   if (n === 4) return 2;
   return 3;
-});
+};
+
+const primaryCols = 3;
+const moreCols = computed(() => columnsFor(moreLinks.value));
 </script>
 
 <style scoped>
@@ -52,11 +105,18 @@ const cols = computed(() => {
 .grid {
   display: grid;
   gap: 16px;
+  grid-auto-rows: 72px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.more-grid {
+  margin-top: 16px;
 }
 
 @media (max-width: 980px) {
   .grid {
-    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }
 
@@ -65,7 +125,11 @@ const cols = computed(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 14px 16px;
+  height: 72px;
   min-height: 72px;
 }
 
@@ -112,5 +176,47 @@ const cols = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.more-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition:
+    background 0.3s ease,
+    border-color 0.3s ease,
+    color 0.3s ease;
+}
+
+.more-toggle:hover {
+  background: var(--glass-strong);
+  border-color: var(--border-bright);
+  color: var(--text);
+}
+
+.more-toggle :deep(svg) {
+  transition: transform 0.3s ease;
+}
+
+.more-toggle :deep(svg.rotated) {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .more-toggle,
+  .more-toggle :deep(svg) {
+    transition: none;
+  }
 }
 </style>

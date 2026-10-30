@@ -15,9 +15,11 @@ export function memoSet(map, key, val, max = 200) {
  */
 export function songIdOf(t) {
   if (!t) return "";
+  // QQ 音乐代理使用 songmid；网易云仍使用数字 id。
+  if (t.songmid || t.mid) return String(t.songmid || t.mid);
   if (t.id) return String(t.id);
   const u = t.url || "";
-  let m = u.match(/[?&]id=(\d+)/);
+  let m = u.match(/[?&](?:id|songmid)=([^&]+)/);
   if (m) return m[1];
   // 网易 CDN 直链：…/YYYYMMDDHHMMSS/md5/SONGID.mp3（文件名即歌曲 ID）
   m = u.match(/\/(\d+)\.(mp3|m4a|flac|aac|wav|ogg)(\?|#|$)/i);

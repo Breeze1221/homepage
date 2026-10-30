@@ -3,6 +3,8 @@ import { siteConfig } from "../config.js";
 import { wallpaperUrl } from "../utils/wallpaperBus.js";
 import { songIdOf, neteasePic, hdCover, smallCover, memoSet } from "../utils/netease.js";
 
+const musicServer = () => siteConfig.musicServer === "tencent" ? "tencent" : "netease";
+
 /**
  * 封面与主色（自 MusicCard 抽出）：
  * - 官方高清封面解析（批量详情直取 / 按名搜索兜底，会话内 LRU 缓存）
@@ -75,39 +77,47 @@ export function createCoverArt({ track }) {
       return;
     }
 
-    // 官方封面：先按原名搜，搜不到再用去掉括号后缀（Live/伴奏/Cover 等）的名字搜
+    // 仅网易云需要通过官方接口搜索高清封面；QQ/Meting 已返回可用封面，直接使用。
+    if (musicServer() === "tencent") {
+      fsCoverSrc.value = base;
+      resolveDominantColor(covKey, smallCover(base), t);
+      syncBgShown();
+      return;
+    }
     let done = false;
     // 整条搜索链的总预算：一轮"搜索+详情"超时就 8s，两组串行最坏 32s，封面不值得等这么久
     const searchDeadline = Date.now() + 12000;
-    try {
-      const cleanName = (t.name || "").replace(/[（(【\[].*?[)）】\]]/g, "").trim();
-      const queries = [t.name, cleanName].filter((q, i, a) => q && a.indexOf(q) === i);
-      for (const q of queries) {
-        if (Date.now() > searchDeadline) break;
-        const ctrl = new AbortController();
-        const searchTimer = setTimeout(() => ctrl.abort(), 8000);
-        coverTimers.push(searchTimer);
-        const search = await fetch(`/netease-search?s=${encodeURIComponent(q)}&type=1&limit=3`, { signal: ctrl.signal }).then((r) => r.json());
-        const albumId = search?.result?.songs?.[0]?.album?.id;
-        if (!albumId) continue;
-        const ctrl2 = new AbortController();
-        const detailTimer = setTimeout(() => ctrl2.abort(), 8000);
-        coverTimers.push(detailTimer);
-        const detail = await fetch(`/netease-album/${albumId}`, { signal: ctrl2.signal }).then((r) => r.json());
-        const pic = detail?.album?.picUrl;
-        if (!pic) continue;
-        const hd = pic.replace(/^http:\/\//i, "https://") + "?param=1024y1024";
-        memoSet(fsCoverCache, covKey, hd);
-        if (track.value === t) {
-          fsCoverSrc.value = hd;
-          resolveDominantColor(covKey, smallCover(hd), t);
-          syncBgShown();
+    if (!done) {
+      try {
+        const cleanName = (t.name || "").replace(/[（(【\[].*?[)）】\]]/g, "").trim();
+        const queries = [t.name, cleanName].filter((q, i, a) => q && a.indexOf(q) === i);
+        for (const q of queries) {
+          if (Date.now() > searchDeadline) break;
+          const ctrl = new AbortController();
+          const searchTimer = setTimeout(() => ctrl.abort(), 8000);
+          coverTimers.push(searchTimer);
+          const search = await fetch(`/netease-search?s=${encodeURIComponent(q)}&type=1&limit=3`, { signal: ctrl.signal }).then((r) => r.json());
+          const albumId = search?.result?.songs?.[0]?.album?.id;
+          if (!albumId) continue;
+          const ctrl2 = new AbortController();
+          const detailTimer = setTimeout(() => ctrl2.abort(), 8000);
+          coverTimers.push(detailTimer);
+          const detail = await fetch(`/netease-album/${albumId}`, { signal: ctrl2.signal }).then((r) => r.json());
+          const pic = detail?.album?.picUrl;
+          if (!pic) continue;
+          const hd = pic.replace(/^http:\/\//i, "https://") + "?param=1024y1024";
+          memoSet(fsCoverCache, covKey, hd);
+          if (track.value === t) {
+            fsCoverSrc.value = hd;
+            resolveDominantColor(covKey, smallCover(hd), t);
+            syncBgShown();
+          }
+          done = true;
+          break;
         }
-        done = true;
-        break;
+      } catch {
+        // 官方接口异常：走下面的兜底
       }
-    } catch {
-      // 官方接口异常：走下面的兜底
     }
 
     // 官方拿不到（搜不到专辑/接口异常）：回落播放列表自带封面，保证全屏有封面与背景

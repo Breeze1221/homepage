@@ -1,24 +1,50 @@
 <template>
   <div class="glass news">
-    <CardHead icon="sun" title="每日新闻" mb="12px">
+    <CardHead icon="flame" title="热点新闻" mb="12px">
       <span class="date">{{ date }}</span>
     </CardHead>
-    <ol v-if="news.length" class="list">
-      <li v-for="(n, i) in news" :key="i">{{ n }}</li>
+    <ol v-if="news.length" class="list" :class="{ expanded: expanded }" id="hot-news-list">
+      <li v-for="(n, i) in displayedNews" :key="i">{{ n }}</li>
     </ol>
-    <p v-else-if="failed" class="tip">新闻加载失败，稍后再试</p>
-    <p v-else class="tip">正在获取今日新闻…</p>
+    <button
+      v-if="news.length > previewCount && !expanded"
+      type="button"
+      class="more-toggle"
+      :aria-expanded="expanded"
+      aria-controls="hot-news-list"
+      @click="expanded = true"
+    >
+      <span>更多新闻</span>
+      <Icon name="chevron-down" :size="16" />
+    </button>
+    <button
+      v-if="news.length > previewCount && expanded"
+      type="button"
+      class="more-toggle"
+      :aria-expanded="expanded"
+      aria-controls="hot-news-list"
+      @click="expanded = false"
+    >
+      <span>收起新闻</span>
+      <Icon name="chevron-down" :size="16" class="rotated" />
+    </button>
+    <p v-if="!news.length && failed" class="tip">新闻加载失败，稍后再试</p>
+    <p v-else-if="!news.length" class="tip">正在获取今日新闻…</p>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { computed, ref, onMounted } from "vue";
 import { cachedFetch } from "@/utils/cachedFetch";
 import CardHead from "@/components/CardHead.vue";
+import Icon from "@/components/Icon.vue";
 
+const previewCount = 4;
+const expanded = ref(false);
 const news = ref([]);
 const date = ref("");
 const failed = ref(false);
+const displayedNews = computed(() => (expanded.value ? news.value : news.value.slice(0, previewCount)));
 
 onMounted(async () => {
   // 按天缓存：当天内刷新不重复请求
@@ -103,8 +129,47 @@ onMounted(async () => {
   border-radius: 99px;
 }
 
+.more-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+.more-toggle:hover {
+  background: var(--glass-strong);
+  border-color: var(--border-bright);
+  color: var(--text);
+}
+
+.more-toggle :deep(svg) {
+  transition: transform 0.3s ease;
+}
+
+.more-toggle :deep(svg.rotated) {
+  transform: rotate(180deg);
+}
+
 .tip {
   color: var(--text-dim);
   font-size: 0.84rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .more-toggle,
+  .more-toggle :deep(svg) {
+    transition: none;
+  }
 }
 </style>

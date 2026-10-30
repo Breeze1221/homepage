@@ -7,12 +7,20 @@ import { useProgressiveList, scrollListToActive } from "./useProgressiveList.js"
 import { createLyrics } from "./useLyrics.js";
 import { createCoverArt } from "./useCoverArt.js";
 
-// Meting 数据源：与博客完全一致——i-meto 主源（博客实测手机网络可用）+ 两备源
-const APIS = [
-  "https://api.i-meto.com/meting/api?server=netease&type=playlist&id=:id&r=:r",
-  "https://api.injahow.cn/meting/?server=netease&type=playlist&id=:id",
-  "https://api.moeyao.cn/meting/?server=netease&type=playlist&id=:id",
+// Meting 数据源：按配置的平台请求歌单；i-meto 主源 + 两个备用源
+const METING_APIS = [
+  "https://api.i-meto.com/meting/api?server=:server&type=playlist&id=:id&r=:r",
+  "https://api.injahow.cn/meting/?server=:server&type=playlist&id=:id",
+  "https://api.moeyao.cn/meting/?server=:server&type=playlist&id=:id",
 ];
+
+const musicServer = () => siteConfig.musicServer === "tencent" ? "tencent" : "netease";
+const proxySource = () => musicServer() === "tencent" ? "tx" : "wy";
+
+function normalizeTrackUrl(url, server) {
+  const normalized = String(url || "").replace(/^http:\/\//i, "https://");
+  return server === "tencent" ? normalized : normalized;
+}
 
 // ── State（模块级单例：小卡与全屏层共用同一份状态）─────────────────────
 const loading = ref(true);
@@ -29,6 +37,7 @@ const isMuted = ref(false);
 const currentTime = ref(0);
 const duration = ref(0);
 const errTip = ref(""); // 播放失败提示（整曲所有源失败时短暂显示）
+const playlistError = ref(false); // 歌单加载失败：由音乐卡提供重试入口
 const resolving = ref(false); // 代理直链解析中：这段时间是静音的，给个提示，别让人以为切歌没生效
 
 const track = computed(() => playlist.value[index.value] || { name: "音乐", artist: "未在播放" });
@@ -84,31 +93,37 @@ let winnerApi = 0; // 本轮竞速胜出的源；单曲降级链优先复用它
 // 三源并发竞速：谁先返回有效歌单用谁（串行最坏要等 3×超时，并发只需最快那家）
 async function fetchPlaylistAll() {
   const id = siteConfig.musicPlaylist;
+  const server = musicServer();
+  const apis = METING_APIS.map((api) => api.replace(":server", server));
   const ctrls = [];
   const timers = [];
   const tryOne = async (api, i) => {
     const ctrl = new AbortController();
     ctrls.push(ctrl);
-    timers.push(setTimeout(() => ctrl.abort(), 4000));
+    timers.push(setTimeout(() => ctrl.abort(), 8000));
     const url = api.replace(":id", id).replace(":r", String(Math.random()));
-    const data = await fetch(url, { signal: ctrl.signal }).then((r) => r.json());
+    const response = await fetch(url, { signal: ctrl.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
     if (!Array.isArray(data) || !data.length) throw new Error("empty");
     const tracks = data
       .map((item) => ({
         name: item.title || item.name || "Unknown",
         artist: item.author || item.artist || "Unknown",
         // 网易 CDN 部分直链是 http，https 页面下会被浏览器拦截，统一转 https
-        url: (item.url || "").replace(/^http:\/\//i, "https://"),
+        url: normalizeTrackUrl(item.url || "", server),
         pic: (item.pic || item.cover || "").replace(/^http:\/\//i, "https://"),
         lrc: item.lrc || "",
         id: item.id || "",
+        songmid: item.songmid || item.mid || (server === "tencent" ? item.id || "" : ""),
+        server,
       }))
       .filter((t) => t.url);
     if (!tracks.length) throw new Error("no urls");
     return { tracks, i };
   };
   try {
-    const { tracks, i } = await Promise.any(APIS.map((api, i) => tryOne(api, i)));
+    const { tracks, i } = await Promise.any(apis.map((api, i) => tryOne(api, i)));
     winnerApi = i; // 只由真正胜出的源写入，避免慢源覆盖快源
     return tracks;
   } finally {
@@ -118,6 +133,7 @@ async function fetchPlaylistAll() {
 }
 
 async function upgradeCovers(tracks) {
+  if (musicServer() !== "netease") return;
   const items = tracks.map((t) => ({ t, id: songIdOf(t) })).filter((x) => x.id);
   const CHUNK = 100;
   const batchTimers = [];
@@ -155,7 +171,7 @@ function scheduleCoverUpgrade() {
 
 // ── 歌单预载：页面一打开就开始拉，进二级面板时多半已就绪 ────────────────
 // 缓存 key 绑定歌单 ID：配置改了歌单立即失效，不用清缓存/无痕
-const playlistCacheKey = `music_playlist_v2_${siteConfig.musicPlaylist || "default"}`;
+const playlistCacheKey = `music_playlist_v5_${musicServer()}_${siteConfig.musicPlaylist || "default"}`;
 // 清理旧版无 ID 的遗留缓存（已不再读取，白占空间）
 try {
   localStorage.removeItem("music_playlist_v2");
@@ -180,7 +196,7 @@ const playlistReady = (async () => {
     }
     return tracks;
   } catch {
-    return []; // 页面刚打开时源全挂不算最终失败，开面板时还会重试
+    return [];
   }
 })();
 
@@ -205,12 +221,14 @@ const PROXY_FAIL_MS = 30 * 1000; // 负缓存：解析失败后短时间内不�
 // 时候超时，然后静默退回 Meting——而 Meting 对 VIP 曲只有 404，结果就是"VIP 歌直接没声"。
 // 12 秒装得下服务端最坏情况（INVOKE_TIMEOUT_MS=9s + 装载/探活）。
 const PROXY_TIMEOUT_MS = 12000;
+const AUDIO_PROBE_TIMEOUT_MS = 8000;
 
 async function resolveProxyUrl(t, ms = PROXY_TIMEOUT_MS) {
   if (!proxyEnabled()) return "";
   const id = songIdOf(t);
   if (!id) return "";
-  const hit = proxyMemo.get(id);
+  const cacheKey = `${proxySource()}:${id}`;
+  const hit = proxyMemo.get(cacheKey);
   if (hit) {
     const ttl = hit.fail ? PROXY_FAIL_MS : PROXY_MEMO_MS;
     if (Date.now() - hit.at < ttl) return hit.url; // 正缓存返直链，负缓存返空串
@@ -220,13 +238,14 @@ async function resolveProxyUrl(t, ms = PROXY_TIMEOUT_MS) {
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
     const q = encodeURIComponent(siteConfig.musicQuality || "320k");
-    const res = await fetch(`/api/url?id=${encodeURIComponent(id)}&source=wy&quality=${q}`, {
+    const param = proxySource() === "tx" ? `songmid=${encodeURIComponent(id)}` : `id=${encodeURIComponent(id)}`;
+    const res = await fetch(`/api/url?${param}&source=${proxySource()}&quality=${q}`, {
       signal: ctrl.signal,
     }).then((r) => r.json());
     // 部分音源返回 http 直链，https 页面下会被浏览器拦掉，统一升到 https
     const url = String((res && res.url) || "").replace(/^http:\/\//i, "https://");
     if (!url) throw new Error((res && (res.msg || res.error)) || "没有直链");
-    memoSet(proxyMemo, id, { url, at: Date.now() });
+    memoSet(proxyMemo, cacheKey, { url, at: Date.now() });
     return url;
   } catch (e) {
     // 静默退回 Meting 候选链，提示只打一次：多半是 /api/url 没部署成功或音源全失效
@@ -234,7 +253,7 @@ async function resolveProxyUrl(t, ms = PROXY_TIMEOUT_MS) {
       proxyWarned = true;
       console.warn("[music] 音源解析失败，已退回 Meting：", e && e.message, "（打开 /api/health 看音源装载情况）");
     }
-    memoSet(proxyMemo, id, { url: "", at: Date.now(), fail: true });
+    memoSet(proxyMemo, cacheKey, { url: "", at: Date.now(), fail: true });
     return "";
   } finally {
     clearTimeout(timer);
@@ -280,7 +299,7 @@ function armLoadTimer(ver) {
   clearLoadTimer();
   loadTimer = setTimeout(() => {
     if (ver === loadVersion) onAudioError();
-  }, 4500);
+  }, 5000);
 }
 
 function playCurrentUrl(autoPlay, ver) {
@@ -299,9 +318,10 @@ function playCurrentUrl(autoPlay, ver) {
     prefetchNextTrack();
     errTip.value = "";
   }).catch((e) => {
-    // 过期或被新加载打断（AbortError）一律静默，交给 error 事件走降级链
+    // 过期或被新加载打断（AbortError）一律静默；其他失败立即进入候选降级。
     if (ver !== loadVersion || e.name === "AbortError") return;
     playing.value = false;
+    onAudioError();
   });
 }
 
@@ -315,8 +335,8 @@ async function playWithProbe(cands, ver) {
       clearTimeout(bail);
       resolve(u);
     };
-    cands.forEach((u) => probeAudio(u, 4000).then((ok) => ok && finish(u)));
-    bail = setTimeout(() => finish(null), 4100);
+    cands.forEach((u) => probeAudio(u, AUDIO_PROBE_TIMEOUT_MS).then((ok) => ok && finish(u)));
+    bail = setTimeout(() => finish(null), AUDIO_PROBE_TIMEOUT_MS + 100);
   });
   if (ver !== loadVersion || !wantPlay) return; // 已切歌或用户已暂停（探活期间点暂停）
   if (winner) {
@@ -341,10 +361,11 @@ function prefetchNextTrack() {
   const idx = (index.value + 1) % n;
   if (prefetchMemo && prefetchMemo.index === idx && Date.now() - prefetchMemo.at < 5 * 60 * 1000) return;
   const nt = playlist.value[idx];
-  const cands = nt ? metingCandidates(nt).slice(0, 3) : [];
+  const cands = nt ? metingCandidates(nt).slice(0, musicServer() === "tencent" ? 2 : 3) : [];
   if (!cands.length) return;
   prefetchOn = true;
-  Promise.any(cands.map((u) => probeAudio(u, 4000).then((ok) => (ok ? u : Promise.reject()))))
+  const probeMs = musicServer() === "tencent" ? 3500 : AUDIO_PROBE_TIMEOUT_MS;
+  Promise.any(cands.map((u) => probeAudio(u, probeMs).then((ok) => (ok ? u : Promise.reject()))))
     .then((url) => { prefetchMemo = { index: idx, url, at: Date.now() }; })
     .catch(() => {}) // 下一首全部失败：保持原降级链即可
     .finally(() => (prefetchOn = false));
@@ -407,7 +428,7 @@ function loadAndPlay(i, autoPlay = true) {
     trackUrls = list;
     trackUrlIdx = 0;
     if (!autoPlay) playCurrentUrl(false, ver);
-    else if (race) playWithProbe(list.slice(), ver);
+    else if (race && musicServer() !== "tencent") playWithProbe(list.slice(), ver);
     else playCurrentUrl(true, ver);
   };
 
@@ -440,20 +461,26 @@ function loadAndPlay(i, autoPlay = true) {
 
 // 按 Meting 接口拼候选链（主源 + 各备源的单曲解析）
 function metingCandidates(t) {
-  const out = [t.url];
-  const mid = t.url.match(/[?&]id=([^&]+)/);
-  const mserver = t.url.match(/[?&]server=([^&]+)/);
-  if (mid && mserver) {
-    const ordered = [APIS[winnerApi], ...APIS.filter((_, i) => i !== winnerApi)];
-    ordered.forEach((api) => {
-      const fu = api
-        .replace(/server=[^&]+/, "server=" + mserver[1])
-        .replace(/type=[^&]+/, "type=url")
-        .replace(/id=[^&]+/, "id=" + mid[1])
-        .replace(/:r/, String(Math.random()));
-      if (!out.includes(fu)) out.push(fu);
-    });
-  }
+  const idMatch = t.url.match(/[?&](?:id|songmid)=([^&]+)/);
+  const mserver = t.url.match(/[?&]server=([^&]+)/) || (t.server ? ["", t.server] : null);
+  if (!idMatch || !mserver) return [t.url].filter(Boolean);
+
+  const server = mserver[1];
+  // QQ 音乐部分节点会把音频重定向到 http，浏览器会拦截混合内容；
+  // 优先使用备用节点生成的 HTTPS 重定向地址，歌单原始 URL 最后再尝试。
+  const apiOrder = server === "tencent"
+    ? [2, 1]
+    : [winnerApi, ...METING_APIS.map((_, i) => i).filter((i) => i !== winnerApi)];
+  const out = [];
+  apiOrder.forEach((i) => {
+    const fu = METING_APIS[i]
+      .replace(/server=[^&]+/, "server=" + server)
+      .replace(/type=[^&]+/, "type=url")
+      .replace(/id=[^&]+/, "id=" + idMatch[1])
+      .replace(/:r/, String(Math.random()));
+    if (!out.includes(fu)) out.push(fu);
+  });
+  if (server !== "tencent" && !out.includes(t.url)) out.push(t.url);
   return out.filter(Boolean);
 }
 
@@ -818,35 +845,32 @@ function initPlayer() {
     art.resolveFsCover().then(() => syncMediaSession());
   });
 
+  loadPlaylist();
+}
+
+async function loadPlaylist(force = false) {
   loading.value = true;
-  (async () => {
+  playlistError.value = false;
+  try {
+    let tracks = force ? [] : await playlistReady;
+    // 页面刚打开时源全挂，或用户点击重试时，重新请求全部节点。
+    if (!tracks.length) tracks = await fetchPlaylistAll();
+    if (!tracks.length) throw new Error("empty playlist");
+    playlist.value = tracks;
     try {
-      playlist.value = await playlistReady;
-      // 页面刚打开时源全挂的情况：开面板时再试一次（网络可能已恢复）
-      if (!playlist.value.length) {
-        playlist.value = await fetchPlaylistAll();
-        try {
-          localStorage.setItem(
-            playlistCacheKey,
-            JSON.stringify({ ts: Date.now(), playlist: playlist.value })
-          );
-        } catch {
-          // 存储失败不影响展示
-        }
-      }
-      if (playlist.value.length) {
-        scheduleCoverUpgrade();
-        // 随机预载一首（不自动播），避免每次打开都是同一首
-        loadAndPlay(Math.floor(Math.random() * playlist.value.length), false);
-      } else {
-        playlist.value = [];
-      }
+      localStorage.setItem(playlistCacheKey, JSON.stringify({ ts: Date.now(), playlist: tracks }));
     } catch {
-      playlist.value = [];
+      // 存储失败不影响展示
     }
+    scheduleCoverUpgrade();
+    // 随机预载一首（不自动播），避免每次打开都是同一首
+    loadAndPlay(Math.floor(Math.random() * tracks.length), false);
+  } catch {
+    playlist.value = [];
+    playlistError.value = true;
+  } finally {
     loading.value = false;
-    // 定位不在这一步做：此时行还没补齐，偏移不准，交给补齐完成后的 onDone
-  })();
+  }
 }
 
 function disposePlayer() {
@@ -873,7 +897,7 @@ function fmt(seconds) {
 const engine = {
   // 状态
   loading, playlist, index, playing, playMode, volume, isMuted,
-  currentTime, duration, errTip, resolving, track, pct, modeIcon,
+  currentTime, duration, errTip, playlistError, resolving, track, pct, modeIcon,
   // 全屏
   fsOpen, fsImmersive, fsDesktop, fsView, fsQueueEl, fsQRows,
   // 歌词 / 封面
@@ -887,6 +911,7 @@ const engine = {
   playIndex, togglePlay, next, prev, cycleMode, seekTo,
   onTime, onEnded, onAudioError,
   openFs, closeFs, scrollQueueToActive,
+  loadPlaylist,
   initPlayer, disposePlayer,
 };
 

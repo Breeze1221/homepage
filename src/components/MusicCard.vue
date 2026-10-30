@@ -98,6 +98,10 @@
     <div class="drawer playlist-drawer" :class="{ open: plOpen }">
       <div class="drawer-clip">
         <div class="playlist-container" ref="plEl">
+          <div v-if="playlistError" class="playlist-error">
+            <p>歌单加载失败</p>
+            <button type="button" @click="loadPlaylist(true)">点击重试</button>
+          </div>
           <div
             v-for="(t, i) in plRows"
             :key="i"
@@ -133,7 +137,7 @@
 
     <audio
       :ref="attachAudio"
-      preload="none"
+      preload="metadata"
       @timeupdate="onTime"
       @loadedmetadata="onTime"
       @ended="onEnded"
@@ -157,12 +161,12 @@ import Icon from "@/components/Icon.vue";
 const p = useMusicPlayer();
 const {
   loading, playing, playMode, modeIcon, track, playlist, index,
-  volume, isMuted, currentTime, duration, errTip, resolving,
+  volume, isMuted, currentTime, duration, errTip, playlistError, resolving,
   lyrics, lrcIndex,
   fmt, seekTo, playIndex, togglePlay, prev, next, cycleMode,
   toggleMute, volPointerDown, attachAudio,
   onTime, onEnded, onAudioError,
-  initPlayer, disposePlayer, openFs,
+  initPlayer, disposePlayer, openFs, loadPlaylist,
 } = p;
 const art = p.art;
 const { musicAccent, cardCoverSrc, coverImgEl, coverLoaded } = art;
@@ -688,6 +692,37 @@ onUnmounted(() => {
   margin-top: 8px;
   padding: 8px 4px 8px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.playlist-error {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.playlist-error p {
+  margin: 0;
+}
+
+.playlist-error button {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.playlist-error button:hover {
+  background: var(--glass-strong);
+  border-color: var(--border-bright);
 }
 
 .pl-item {

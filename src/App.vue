@@ -22,7 +22,7 @@
           >
         </div>
         <GreetCard v-if="homeCards.greet" class="rise" style="--d: 0.18s" />
-        <BlogCard v-if="homeCards.blog" class="rise" style="--d: 0.3s" />
+        <NewsCard v-if="homeCards.blog" class="rise" style="--d: 0.3s" />
       </section>
       <section class="right-col rise" style="--d: 0.12s">
         <div class="bento">
@@ -62,7 +62,7 @@ import Loading from "@/components/Loading.vue";
 import Background from "@/components/Background.vue";
 import LogoBadge from "@/components/LogoBadge.vue";
 import GreetCard from "@/components/GreetCard.vue";
-import BlogCard from "@/components/BlogCard.vue";
+import NewsCard from "@/components/NewsCard.vue";
 import Hitokoto from "@/components/Hitokoto.vue";
 import ClockCard from "@/components/ClockCard.vue";
 import WeatherCard from "@/components/WeatherCard.vue";
@@ -75,7 +75,17 @@ import { inject } from "@vercel/analytics";
 
 // 二级面板（含音乐播放器等全部面板卡片）独立分包：主页首屏不再为「多数访客不会
 // 打开的面板」付出 JS 解析/执行成本。空空闲即预取（见 main.js），点击时基本已就绪。
-const MorePanel = defineAsyncComponent(() => import("@/components/MorePanel.vue"));
+const MorePanel = defineAsyncComponent({
+  loader: () => import("@/components/MorePanel.vue"),
+  onError(error, retry, fail, attempts) {
+    // 部署更新期间旧页面可能暂时引用已被替换的 chunk，自动刷新一次分包即可恢复。
+    if (attempts <= 2 && /ChunkLoadError|Failed to fetch dynamically imported module|Importing a module script failed/i.test(String(error))) {
+      retry();
+    } else {
+      fail();
+    }
+  },
+});
 
 // 站名拆成「主名 + 后缀」两段渲染：主名大字、后缀小一号（`.top` 这种 TLD），
 // 配上手写体就是导航站常见的那种艺术字观感（与 homepage 仓库同一套处理）

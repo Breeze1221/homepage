@@ -49,7 +49,7 @@ export const siteConfig = {
   //     "https://t.alcy.cc/pc"             （桌面横版）/ "mp" 手机竖版 / "ys" 原神
   //     "https://wp.upx8.com/api.php?category=nature" （10 分类：nature/anime/game/city…）
   //     "https://uapis.cn/api/v1/random/image?category=landscape" （landscape/acg/anime）
-  bgApi: "https://uapis.cn/api/v1/image/bing-daily",
+  bgApi: "https://imgbed.breezexing.xyz/file/1793338739301_earth.png",
   // 随机壁纸降级链（仅 bgApi 为远程接口时生效）：主源失败依次重试，全部失败回退极光渐变。
   // 以下均实测存活且 <1s（2026-09）
   bgFallbacks: [
@@ -89,8 +89,10 @@ export const siteConfig = {
   panelCards: ["news", "hotlist", "music", "epic", "history", "monitor"],
   // GitHub 用户名（GitHub 卡展示 Followers / Repos 数据；不把 github 加进 panelCards 就不显示）
   githubUser: "breeze1221",
-  // 网易云音乐歌单 ID（音乐播放卡），从歌单页地址栏 playlist?id=xxx 获取
-  musicPlaylist: "421405780",
+  // 音乐平台：netease 网易云 / tencent QQ 音乐
+  musicServer: "tencent",
+  // QQ 音乐歌单 ID，从歌单地址 /playlist/xxx 获取；网易云则填写 playlist?id=xxx 的 id
+  musicPlaylist: "8213917591",
   // ── 播放直链来源 ────────────────────────────────
   //   "meting"（默认）：走公共 Meting 接口，开箱即用，不依赖任何额外部署。
   //   "proxy"：走本仓库自带的 serverless 解析（api/ + lib/，跟主页一起部署在 Vercel）——
@@ -132,7 +134,7 @@ export const socialLinks = [
 ];
 
 // 网站列表（展示在右侧「网站列表」卡片中）
-// icon 可选：blog / cloud / music / video / code / star
+// icon 可选：blog / link / image / notebook / qr-code / newspaper / activity / globe / wrench
 export const siteLinks = [
   {
     name: "博客",
@@ -141,10 +143,52 @@ export const siteLinks = [
     url: "https://blog.breezexing.xyz/",
   },
   {
-    name: "资源站",
-    desc: "www.example.com",
-    icon: "cloud",
-    url: "https://www.example.com/",
+    name: "导航",
+    desc: "nav.breezexing.xyz",
+    icon: "link",
+    url: "https://nav.breezexing.xyz/",
+  },
+  {
+    name: "图床",
+    desc: "imgbed.breezexing.xyz",
+    icon: "image",
+    url: "https://imgbed.breezexing.xyz/",
+  },
+  {
+    name: "笔记",
+    desc: "notes.breezexing.xyz",
+    icon: "notebook",
+    url: "https://notes.breezexing.xyz/",
+  },
+  {
+    name: "二维码生成",
+    desc: "qrcode.breezexing.xyz",
+    icon: "qr-code",
+    url: "https://qrcode.breezexing.xyz/",
+  },
+  {
+    name: "新闻热点",
+    desc: "news.breezexing.xyz",
+    icon: "newspaper",
+    url: "https://news.breezexing.xyz/",
+  },
+  {
+    name: "站点检测",
+    desc: "status.breezexing.xyz",
+    icon: "activity",
+    url: "https://status.breezexing.xyz/",
+  },
+  {
+    name: "IP查询",
+    desc: "ip.breezexing.xyz",
+    icon: "globe",
+    url: "https://ip.breezexing.xyz/",
+  },
+  {
+    name: "IT工具",
+    desc: "ittools.breezexing.xyz",
+    icon: "wrench",
+    url: "https://ittools.breezexing.xyz/",
   },
   // 想加更多站点？照着上面的格式复制一份即可，例如：
   // { name: "导航站", desc: "nav.example.com", icon: "star", url: "https://nav.example.com/" },

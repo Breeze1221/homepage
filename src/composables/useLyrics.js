@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import { siteConfig } from "../config.js";
 import { memoSet, songIdOf } from "../utils/netease.js";
 
 /** LRC 文本 → [{ time, text }] 升序（纯函数，便于单测） */
@@ -137,7 +138,8 @@ export function createLyrics({ playlist, index }) {
       }
     }
     const id = songIdOf(t);
-    const fallback = id ? `https://api.injahow.cn/meting/?server=netease&type=lrc&id=${id}` : "";
+    const server = siteConfig.musicServer === "tencent" ? "tencent" : "netease";
+    const fallback = id ? `https://api.injahow.cn/meting/?server=${server}&type=lrc&id=${encodeURIComponent(id)}` : "";
     if (fallback && !urls.includes(fallback)) urls.push(fallback);
     if (!urls.length) return;
 
@@ -189,7 +191,8 @@ export function createLyrics({ playlist, index }) {
     const urls = [];
     if (next.lrc && /^(https?:)?\/\//.test(next.lrc)) urls.push(next.lrc);
     const id = songIdOf(next);
-    const fallback = id ? `https://api.injahow.cn/meting/?server=netease&type=lrc&id=${id}` : "";
+    const server = siteConfig.musicServer === "tencent" ? "tencent" : "netease";
+    const fallback = id ? `https://api.injahow.cn/meting/?server=${server}&type=lrc&id=${encodeURIComponent(id)}` : "";
     if (fallback && !urls.includes(fallback)) urls.push(fallback);
     if (!urls.length) return;
     prefetching = true;
