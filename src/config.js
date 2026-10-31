@@ -192,12 +192,6 @@ export const siteLinks = [
     icon: "wrench",
     url: "https://ittools.breezexing.xyz/",
   },
-    {
-    name: "小说搜索",
-    desc: "novel.breezexing.xyz",
-    icon: "serch",
-    url: "https://novel.breezexing.xyz/",
-  },
   // 想加更多站点？照着上面的格式复制一份即可，例如：
   // { name: "导航站", desc: "nav.example.com", icon: "star", url: "https://nav.example.com/" },
 ];
