@@ -79,14 +79,14 @@ export const siteConfig = {
 
   /* ---------- 「探索更多」面板（点击左上角 Logo 进入） ---------- */
   // 面板卡片排列：数组顺序 = 面板内排列顺序；删掉某项 = 隐藏该卡
-  // 可选值：news 新闻 / hotlist 热榜 / music 音乐 / epic 限免 / history 历史上的今天 /
+  // 可选值：food 今天吃什么 / news 新闻 / hotlist 热榜 / music 音乐 / epic 限免 / history 历史上的今天 /
   //         monitor 站点监控 / github GitHub
   // 注：github 卡需同时配置 githubUser，music 卡需同时配置 musicPlaylist，
   //     monitor 卡需同时配置 siteMonitors，为空自动隐藏
   // 点击进入二级「探索更多」面板时，鼠标位置会绽开一朵小烟花并冒一句提示；
   // 这里是提示文案池（依次轮播），留空数组则只放烟花不显示提示
   panelTips: ["🎆 欢迎来到探索面板", "🎵 卡片里有全屏播放器", "💡 再点右上角「返回」回来"],
-  panelCards: ["news", "hotlist", "music", "epic", "history", "monitor"],
+  panelCards: ["food", "hotlist", "music", "epic", "history", "monitor"],
   // GitHub 用户名（GitHub 卡展示 Followers / Repos 数据；不把 github 加进 panelCards 就不显示）
   githubUser: "breeze1221",
   // 音乐平台：netease 网易云 / tencent QQ 音乐

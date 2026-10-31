@@ -1,5 +1,6 @@
 import { siteConfig } from "@/config";
 import NewsCard from "@/components/NewsCard.vue";
+import FoodPickerCard from "@/components/FoodPickerCard.vue";
 import HotListCard from "@/components/HotListCard.vue";
 import MusicCard from "@/components/MusicCard.vue";
 import EpicCard from "@/components/EpicCard.vue";
@@ -12,6 +13,7 @@ import SiteMonitorCard from "@/components/SiteMonitorCard.vue";
 //   needs   —— 依赖配置的卡：对应配置为空时自动隐藏
 export const PANEL_CARD_MAP = {
   news: NewsCard,
+  food: FoodPickerCard,
   hotlist: HotListCard,
   music: MusicCard,
   epic: EpicCard,
