@@ -82,7 +82,7 @@ export const siteConfig = {
   // 可选值：food 今天吃什么 / news 新闻 / hotlist 热榜 / music 音乐 / epic 限免 / history 历史上的今天 /
   //         monitor 站点监控 / github GitHub
   // 注：github 卡需同时配置 githubUser，music 卡需同时配置 musicPlaylist，
-  //     monitor 卡需同时配置 siteMonitors，为空自动隐藏
+  //     monitor 卡跟随下方 siteLinks 网站列表，为空自动隐藏
   // 点击进入二级「探索更多」面板时，鼠标位置会绽开一朵小烟花并冒一句提示；
   // 这里是提示文案池（依次轮播），留空数组则只放烟花不显示提示
   panelTips: ["🎆 欢迎来到探索面板", "🎵 卡片里有全屏播放器", "💡 再点右上角「返回」回来"],
@@ -103,12 +103,11 @@ export const siteConfig = {
   musicSource: "meting",
   // 音质：128k / 320k / flac / flac24bit
   musicQuality: "320k",
-  // 站点监控卡（monitor）：检测各站点是否可访问（访客浏览器直连探测，
-  // 显示连通状态与响应耗时，60 秒自动刷新）。url 需带 https://
-  siteMonitors: [
-    { name: "博客", url: "https://blog.breezexing.xyz/" },
-    // { name: "博客", url: "https://blog.example.com/" },
-  ],
+  // 站点监控卡（monitor）：跟随下方 siteLinks 的全部网站，无需单独维护。
+  // 访客浏览器直连探测，显示连通状态与响应耗时，60 秒自动刷新。
+  get siteMonitors() {
+    return siteLinks.map(({ name, url }) => ({ name, url }));
+  },
   // 热榜平台与顺序（hotlist 卡），可用 key：
   //   weibo 微博 / bilibili B站 / v2ex V2EX / ithome IT之家 / hellogithub HelloGitHub
   //   zhihu 知乎 / juejin 掘金 / sspai 少数派
