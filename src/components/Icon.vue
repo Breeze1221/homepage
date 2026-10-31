@@ -41,6 +41,7 @@ const icons = Object.assign(Object.create(null), {
   star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
   image: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
   notebook: '<path d="M4 4h13a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3Z"/><path d="M4 4v13a3 3 0 0 0 3 3"/><path d="M8 8h8M8 12h8"/>',
+  'book-search': '<path d="M12 7v13"/><path d="M3 18V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5"/><path d="M3 18a2 2 0 0 0 2 2h8"/><path d="M8 7h4M8 11h3"/><circle cx="17" cy="15" r="3"/><path d="m19.2 17.2 2 2"/>',
   'qr-code': '<rect width="5" height="5" x="3" y="3"/><rect width="5" height="5" x="16" y="3"/><rect width="5" height="5" x="3" y="16"/><path d="M16 16h2v2h-2zM20 16v5M16 20h2M20 12h1"/>',
   newspaper: '<path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/><path d="M4 8H2v10a2 2 0 0 0 2 2"/>',
   activity: '<path d="M3 12h4l2-7 4 14 2-7h6"/>',
