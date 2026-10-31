@@ -1,0 +1,399 @@
+/* 站名的手写体（均为 Google Fonts 的 SIL OFL 开源字体，见 public/font/README.md；
+   可选项与 key 对应关系见 src/fonts.js，config.js 的 siteFont 一行切换） */
+@font-face {
+  font-family: "Pacifico";
+  font-display: swap;
+  src: url("/font/Pacifico-Regular.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Dancing Script";
+  font-display: swap;
+  src: url("/font/DancingScript.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Great Vibes";
+  font-display: swap;
+  src: url("/font/GreatVibes.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Lobster";
+  font-display: swap;
+  src: url("/font/Lobster.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Kaushan Script";
+  font-display: swap;
+  src: url("/font/KaushanScript.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Sacramento";
+  font-display: swap;
+  src: url("/font/Sacramento.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Caveat";
+  font-display: swap;
+  src: url("/font/Caveat.ttf") format("truetype");
+}
+
+:root {
+  --bg: #070b16;
+  /* 壁纸压暗强度（0~1）。一级背景 .dim、二级面板 .more::before、毛玻璃快照底版
+     三处共用这一个数——它们必须是同一个值，否则卡片内外的亮度会脱节，出现
+     「浮起来一块亮斑」或「卡片比背景暗一截」。改这里一处即可整体调节。 */
+  --bg-dim: 0.22;
+  --glass: rgba(255, 255, 255, 0.06);
+  --glass-strong: rgba(255, 255, 255, 0.1);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-bright: rgba(255, 255, 255, 0.22);
+  --text: #eef2ff;
+  --text-dim: rgba(238, 242, 255, 0.62);
+  --accent1: #818cf8;
+  --accent2: #22d3ee;
+  --radius: 18px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  /* 关闭移动浏览器点按高亮：方块高亮盖在圆形按钮/玻璃卡片上非常突兀 */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 音乐卡与全屏播放器内不显示滚动条（列表/歌词仍可滚动） */
+.more .music .playlist-container,
+.more .music .lrc-container,
+.fs-lrc,
+.fs-queue {
+  scrollbar-width: none;
+}
+
+.more .music .playlist-container::-webkit-scrollbar,
+.more .music .lrc-container::-webkit-scrollbar,
+.fs-lrc::-webkit-scrollbar,
+.fs-queue::-webkit-scrollbar {
+  display: none;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Microsoft YaHei",
+    sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* 键盘焦点可见：全局统一焦点环，仅键盘触发（不影响鼠标点击） */
+:focus-visible {
+  outline: 2px solid var(--accent2);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :focus-visible {
+    outline-offset: 0;
+  }
+}
+
+img {
+  display: block;
+}
+
+/* 毛玻璃卡片通用样式 */
+.glass {
+  position: relative;
+  overflow: hidden;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  /* 不要写 will-change: backdrop-filter：那不是"提前提升一次"，而是让这些模糊层
+     长期驻留合成树，且任何时候背景变化都要重算——页面上十几张卡会一直吃掉 GPU。
+     首次绘制慢一帧的代价远小于常驻开销。 */
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  transition:
+    background 0.3s ease,
+    border-color 0.3s ease,
+    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 极光模式（body.bg-aurora，见 Background.vue）：卡片撤掉实时 backdrop-filter。
+   极光是 4 个 39vw 的超大径向渐变、四段线性过渡，14px 高斯对它的改变低于 JND；
+   而光斑每 250ms 漂移一次，13 张卡会被定期全部重取景——纯浪费。
+   壁纸就绪后这个类摘掉，改由 frost 的烘焙快照接管（见下）。 */
+body.bg-aurora .glass {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* 鼠标跟随光泽层（--mx/--my 由 tilt.js 写入，mix-blend 对齐 FluentPlayer 封面高光） */
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at var(--mx, 50%) var(--my, 50%),
+    rgba(255, 255, 255, 0.28) 0%,
+    transparent 50%
+  );
+  mix-blend-mode: overlay;
+  opacity: 0;
+  transition: opacity 240ms ease-out;
+  pointer-events: none;
+}
+
+@media (hover: hover) {
+  .glass:hover::before {
+    opacity: 1;
+  }
+}
+
+/* ── 毛玻璃快照（utils/frost.js，仅桌面精确指针 + 壁纸模式启用）──
+   壁纸就绪后给每张卡挂 .frost-ready 并插入一个 .frost-canvas：全屏模糊底版只烘焙
+   一次，每张卡只是把底版里自己那块 drawImage 拷过来。相比「每卡各跑一次
+   backdrop-filter」，模糊次数 13→1；布局一变只重拷贝（微秒级、不换渲染路径）。
+   卡片撤掉实时 backdrop-filter——背后的内容是静态的，实时取样的输出永远不变，却会因
+   任何脏区（光标/涟漪/倾斜）被逐帧重跑，实测光标划过卡片 GPU 50~78%，撤掉后回落
+   到整树合成底噪 ~14%。 */
+/* 桌面端（frost 启用）所有卡片从首帧起保持 transform 图层提升：
+   载入动画期间本就会被动画提升，提升到 frost 挂载后无缝衔接，
+   避免动画结束→降级→frost 再提升造成的两段渲染切换 */
+body.frost-desktop .glass {
+  will-change: transform;
+}
+
+.glass.frost-ready {
+  /* 收住层叠：负 z 的快照画布与底色层要沉在卡片内容之下 */
+  isolation: isolate;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  /* ⚠️画布铺到边框盒（inset:-1px）才能盖住那 1px 边框圈——否则边框后面没有
+     模糊取样，会透出未模糊的原始壁纸形成白边。overflow 必须放开，否则画布被裁在
+     padding 盒，白边原地复发。投影不裁就不丢（上一版用 clip-path 裁出过投影消失） */
+  overflow: visible;
+  /* 倾斜结束后的图层降级会重光栅化一次，静止瞬间可见一帧细微变化；
+     保持提升避免降级（静态层无重绘成本，只有常驻显存） */
+  will-change: transform;
+}
+
+/* 快照画布：底版的一块拷贝。铺到边框盒，圆角随卡片（+1px 补齐边框那一圈） */
+.frost-canvas {
+  position: absolute;
+  inset: -1px;
+  z-index: -2;
+  border-radius: calc(var(--radius) + 1px);
+  pointer-events: none;
+}
+
+/* 玻璃底色 + 1px 描边，画在快照画布之上、卡片内容之下。
+   负 z 子级按绘制顺序会盖住元素自身的 border，所以描边由这层用 inset box-shadow
+   原位重画——好处是 outline 空出来了：焦点环不再被 frost 覆盖（上一版
+   outline 重画描边时，站点卡的 :focus-visible 焦点环是失灵的）。
+   background-color 与 box-shadow 都可过渡，站点卡悬停的提亮依旧是平滑的。 */
+.glass.frost-ready::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: calc(var(--radius) + 1px);
+  pointer-events: none;
+  background-color: var(--frost-tint, var(--glass));
+  box-shadow: inset 0 0 0 1px var(--frost-edge, var(--border));
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* 面板卡的提层提示随实时滤镜一并撤掉，改保持 transform 提升与主页卡一致。
+   选择器多一级 body 是为了压过 MorePanel 里那条 scoped 的
+   `will-change: backdrop-filter`（照旧会提层，但会为一份不存在的滤镜保留快照路径） */
+body .more .glass.frost-ready {
+  will-change: transform;
+}
+
+/* 载入层淡出过渡 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.5s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* 悬停提示气泡（向下弹出，避免被卡片 overflow 裁剪） */
+[data-tip] {
+  position: relative;
+}
+
+@media (hover: hover) {
+  [data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(13, 18, 33, 0.92);
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--text);
+    pointer-events: none;
+    z-index: 10;
+  }
+}
+
+/* 自定义光标：中心圆点 + 缓动外圈 */
+body.custom-cursor,
+body.custom-cursor * {
+  cursor: none !important;
+}
+
+.cursor-dot,
+.cursor-ring {
+  position: fixed;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 999;
+  margin: -4px 0 0 -4px;
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  opacity: 0;
+  transition: width 0.25s ease, height 0.25s ease, margin 0.25s ease,
+    background 0.25s ease, opacity 0.3s ease;
+}
+
+.cursor-dot.visible,
+.cursor-ring.visible {
+  opacity: 1;
+}
+
+.cursor-dot.hovered {
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  background: var(--accent2);
+}
+
+.cursor-ring {
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  background: transparent;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+}
+
+.cursor-ring.hovered {
+  border-color: var(--accent2);
+}
+
+/* 移动/点击时泛起的涟漪 */
+.mouse-ripple {
+  position: fixed;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  z-index: 998;
+  animation: mouse-ripple 0.9s ease-out forwards;
+}
+
+.mouse-ripple.big {
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-color: rgba(129, 140, 248, 0.8);
+  animation-duration: 0.6s;
+}
+
+@keyframes mouse-ripple {
+  from {
+    opacity: 0.75;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+
+/* 打字机光标：实现在 GreetCard 的 scoped 样式里（JS 定步进闪烁），此处不再重复 */
+
+/* ── 点击进入二级面板的烟花 + 小提示（见 utils/fx.js） ── */
+.fx-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+}
+
+.fx-tip {
+  position: fixed;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 6px 14px;
+  border-radius: 99px;
+  font-size: 13px;
+  color: #fff;
+  background: rgba(18, 20, 28, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: fx-tip-rise 2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes fx-tip-rise {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -35%) scale(0.92);
+  }
+  7% {
+    opacity: 1;
+    transform: translate(-50%, -66%) scale(1);
+  }
+  82% {
+    opacity: 1;
+    transform: translate(-50%, -78%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -190%) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-tip {
+    display: none;
+  }
+}
