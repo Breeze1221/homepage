@@ -14,7 +14,7 @@ export const siteConfig = {
   // 例如 "/images/logo.png"（图片放 public/images/ 目录）或 "https://xxx.com/logo.png"
   logo: "",
   // 浏览器标签页标题
-  pageTitle: "我的主页",
+  pageTitle: "Breeze的主页",
   // 问候语（简介卡片大标题）
   greet: "Hello World!",
   // 一句话介绍（也是打字机轮换的第一句）
