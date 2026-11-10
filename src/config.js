@@ -136,6 +136,7 @@ export const socialLinks = [
 
 // 网站列表（展示在右侧「网站列表」卡片中）
 // icon 可选：blog / link / image / notebook / qr-code / newspaper / activity / globe / wrench / book-search
+//           toolbox / lightbulb / message-square / analytics / hard-drive / layout-grid
 export const siteLinks = [
   {
     name: "博客",
@@ -196,6 +197,42 @@ export const siteLinks = [
     desc: "novel.breezexing.xyz",
     icon: "book-search",
     url: "https://novel.breezexing.xyz/",
+  },
+  {
+    name: "工具宝箱",
+    desc: "tools.breezexing.xyz",
+    icon: "toolbox",
+    url: "https://tools.breezexing.xyz/",
+  },
+  {
+    name: "理想页",
+    desc: "idea.breezexing.xyz",
+    icon: "lightbulb",
+    url: "https://idea.breezexing.xyz/",
+  },
+  {
+    name: "评论页",
+    desc: "waline.breezexing.xyz",
+    icon: "message-square",
+    url: "https://waline.breezexing.xyz/",
+  },
+  {
+    name: "博客站点检测",
+    desc: "umami.breezexing.xyz",
+    icon: "analytics",
+    url: "https://umami.breezexing.xyz/",
+  },
+  {
+    name: "云盘",
+    desc: "cloud.breezexing.xyz",
+    icon: "hard-drive",
+    url: "https://cloud.breezexing.xyz/",
+  },
+  {
+    name: "起始页",
+    desc: "tab.breezexing.xyz",
+    icon: "layout-grid",
+    url: "https://tab.breezexing.xyz/",
   },
   // 想加更多站点？照着上面的格式复制一份即可，例如：
   // { name: "导航站", desc: "nav.example.com", icon: "star", url: "https://nav.example.com/" },
